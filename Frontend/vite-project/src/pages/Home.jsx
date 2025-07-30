@@ -1,4 +1,3 @@
-// src/pages/Home.jsx
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePlayer } from '../context/PlayerContext';
@@ -24,34 +23,46 @@ const Home = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gray-900 text-white px-4">
-      <h1 className="text-4xl font-bold mb-8">Multiplayer RPS</h1>
-      <input
-        type="text"
-        placeholder="Your name"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        className="mb-4 px-4 py-2 text-black rounded"
-      />
-      <div className="flex space-x-2 mb-4">
-        <button
-          onClick={createRoom}
-          className="px-6 py-2 bg-green-600 rounded hover:bg-green-700"
-        >
-          Create Room
-        </button>
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 flex items-center justify-center px-4">
+      <div className="bg-gray-800 border border-gray-700 shadow-2xl rounded-2xl p-8 w-full max-w-md text-center">
+        <h1 className="text-4xl font-bold mb-6 text-transparent bg-clip-text bg-gradient-to-r from-green-400 to-blue-500">
+          Rock Paper Scissors
+        </h1>
+
         <input
           type="text"
-          placeholder="Room Code"
-          value={roomCode}
-          onChange={(e) => setRoomCode(e.target.value)}
-          className="px-4 py-2 text-black rounded w-32"
+          placeholder="Enter your name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          className="w-full mb-4 px-4 py-3 rounded-lg bg-gray-100 text-black placeholder-gray-600 shadow focus:outline-none focus:ring-2 focus:ring-green-400"
         />
+
+        <div className="flex items-center space-x-2 mb-4">
+          <input
+            type="text"
+            placeholder="Room Code"
+            value={roomCode}
+            onChange={(e) => setRoomCode(e.target.value)}
+            className="flex-1 px-4 py-3 rounded-lg bg-gray-100 text-black placeholder-gray-600 shadow focus:outline-none focus:ring-2 focus:ring-blue-400"
+          />
+          <button
+            onClick={joinRoom}
+            className="px-5 py-3 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow transition"
+          >
+            Join
+          </button>
+        </div>
+
+        <div className="relative my-4">
+          <hr className="border-gray-600" />
+          <span className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-gray-800 px-3 text-sm text-gray-400">or</span>
+        </div>
+
         <button
-          onClick={joinRoom}
-          className="px-6 py-2 bg-blue-600 rounded hover:bg-blue-700"
+          onClick={createRoom}
+          className="w-full px-6 py-3 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg shadow transition"
         >
-          Join Room
+          Create New Room
         </button>
       </div>
     </div>

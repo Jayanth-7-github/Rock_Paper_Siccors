@@ -33,6 +33,20 @@ const Game = () => {
     // keep ref up-to-date so socket handlers can read latest players
     playersRef.current = players;
 
+    // connection lifecycle logs
+    console.debug("socket id at mount:", socket.id);
+    socket.on("connect", () => {
+      console.log("socket connected", socket.id);
+    });
+    socket.on("connect_error", (err) => {
+      console.error("socket connect_error:", err);
+      setToast(`Socket connect error: ${err.message || err}`);
+    });
+    socket.on("disconnect", (reason) => {
+      console.warn("socket disconnected:", reason);
+      setToast(`Socket disconnected: ${reason}`);
+    });
+
     socket.on("both-players-joined", ({ players: ps, scores: sc }) => {
       setPlayers(ps);
       setScores(sc);
@@ -68,6 +82,7 @@ const Game = () => {
     });
 
     socket.on("rematch-start", () => {
+      console.debug("rematch-start received");
       setRoundResult(null);
       setResultType(null);
       setMoves({});
@@ -88,6 +103,7 @@ const Game = () => {
     });
 
     socket.on("rematch-requested", ({ requesterId, name }) => {
+      console.debug("rematch-requested", { requesterId, name });
       // If the requester is the current player, show waiting state; otherwise
       // show that opponent requested and allow accept.
       if (requesterId === socket.id) {
@@ -116,6 +132,7 @@ const Game = () => {
     });
 
     socket.on("rematch-cancelled", ({ requesterId, name }) => {
+      console.debug("rematch-cancelled", { requesterId, name });
       // Clean up UI when someone cancels their request
       if (requesterId === socket.id) {
         setRematchRequested(false);
@@ -137,13 +154,20 @@ const Game = () => {
 
     socket.on("chat-message", handleChat);
 
+    socket.on("update-players", ({ players: ps }) => {
+      console.debug("update-players", ps);
+      setPlayers(ps || []);
+    });
+
     socket.on("opponent-left", ({ name, message }) => {
+      console.debug("opponent-left", { name, message });
       setToast(`👋 ${message}`);
       // Remove the opponent from players list
       setPlayers((prevPlayers) => prevPlayers.filter((p) => p.name !== name));
     });
 
     socket.on("match-end", ({ winnerId, scores }) => {
+      console.debug("match-end", { winnerId, scores });
       // use playersRef to get the latest players array inside handler
       const winner = playersRef.current?.find((p) => p.id === winnerId);
       const isLocalPlayerWinner = winnerId === socket.id;
@@ -163,6 +187,7 @@ const Game = () => {
 
     socket.on("error", (message) => {
       console.warn("socket error:", message);
+      console.error("socket error event:", message);
       setToast(`⚠️ ${message}`);
     });
 
@@ -178,6 +203,10 @@ const Game = () => {
       socket.off("opponent-left");
       socket.off("match-end");
       socket.off("error");
+      socket.off("connect");
+      socket.off("connect_error");
+      socket.off("disconnect");
+      socket.off("update-players");
       // clear toast and rematch timers on unmount
       if (toastTimeoutRef.current) {
         clearTimeout(toastTimeoutRef.current);
@@ -194,6 +223,16 @@ const Game = () => {
   useEffect(() => {
     playersRef.current = players;
   }, [players]);
+
+  // log result-related state to help debug when results should show
+  useEffect(() => {
+    console.debug("result state changed:", {
+      resultType,
+      roundResult,
+      moves,
+      scores,
+    });
+  }, [resultType, roundResult, moves, scores]);
 
   // handle auto-hide for toast separately so socket listeners effect stays stable
   useEffect(() => {
@@ -216,18 +255,21 @@ const Game = () => {
   const sendMove = (choice) => {
     // prevent choosing when waiting for round result to be displayed
     if (!hasPicked && resultType === null) {
+      console.debug("emitting player-move", choice);
       socket.emit("player-move", choice);
       setHasPicked(true);
     }
   };
 
   const rematch = () => {
+    console.debug("emitting rematch");
     socket.emit("rematch");
     setRematchRequested(true);
   };
 
   const acceptRematch = () => {
     // Accepting is just emitting rematch as well
+    console.debug("accepting rematch, emitting rematch");
     socket.emit("rematch");
     setRematchRequested(true);
     setOpponentRematchRequested(null);
@@ -245,12 +287,14 @@ const Game = () => {
 
   const sendChat = () => {
     if (message.trim()) {
+      console.debug("emitting chat-message", message);
       socket.emit("chat-message", message);
       setMessage("");
     }
   };
 
   const exitRoom = () => {
+    console.debug("emitting leave-room");
     socket.emit("leave-room");
     navigate("/");
   };

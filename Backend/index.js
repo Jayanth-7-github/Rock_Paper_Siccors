@@ -70,7 +70,7 @@ io.on("connection", (socket) => {
     if (opponentSocket && opponentSocket.data.move) {
       const result = getResult(socket.data.move, opponentSocket.data.move);
       const winnerId =
-        result === "draw"
+        result === "tie"
           ? null
           : result === "win"
           ? socket.id
@@ -99,11 +99,34 @@ io.on("connection", (socket) => {
     const room = rooms.get(roomId);
     if (!room) return;
 
+    // Require both players to request a rematch.
     room.rematchRequests.add(socket.id);
-    if (room.rematchRequests.size === 2) {
+    // Notify the other players that someone requested a rematch so the UI
+    // can show an "Accept Rematch" or "Waiting" state.
+    socket.to(roomId).emit("rematch-requested", {
+      requesterId: socket.id,
+      name: socket.data.name,
+    });
+
+    // If all players in the room have requested rematch, start it
+    // and clear the requests set.
+    if (room.rematchRequests.size === room.players.length) {
       room.rematchRequests.clear();
       io.to(roomId).emit("rematch-start");
     }
+  });
+
+  // Allow clients to cancel their rematch request (e.g. timeout)
+  socket.on("rematch-cancel", () => {
+    const roomId = socket.data.roomId;
+    const room = rooms.get(roomId);
+    if (!room) return;
+
+    room.rematchRequests.delete(socket.id);
+    socket.to(roomId).emit("rematch-cancelled", {
+      requesterId: socket.id,
+      name: socket.data.name,
+    });
   });
 
   // ✅ Attach chat handler ONCE per connection
@@ -139,7 +162,7 @@ io.on("connection", (socket) => {
 });
 
 function getResult(p1, p2) {
-  if (p1 === p2) return "draw";
+  if (p1 === p2) return "tie";
   const beats = { rock: "scissors", paper: "rock", scissors: "paper" };
   return beats[p1] === p2 ? "win" : "lose";
 }

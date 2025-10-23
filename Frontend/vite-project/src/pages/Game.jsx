@@ -17,6 +17,12 @@ const Game = () => {
   const [chat, setChat] = useState([]);
   const [message, setMessage] = useState("");
   const [hasPicked, setHasPicked] = useState(false);
+  const [rematchRequested, setRematchRequested] = useState(false);
+  const [opponentRematchRequested, setOpponentRematchRequested] =
+    useState(null);
+  const [toast, setToast] = useState(null);
+  const rematchTimeoutRef = React.useRef(null);
+  const REMATCH_TIMEOUT_MS = 15000; // 15 seconds
 
   useEffect(() => {
     socket.on("both-players-joined", ({ players: ps, scores: sc }) => {
@@ -35,7 +41,62 @@ const Game = () => {
       setRoundResult(null);
       setMoves({});
       setHasPicked(false);
+      setRematchRequested(false);
+      setOpponentRematchRequested(null);
+      // clear any pending timeout
+      if (rematchTimeoutRef.current) {
+        clearTimeout(rematchTimeoutRef.current);
+        rematchTimeoutRef.current = null;
+      }
     });
+
+    socket.on("rematch-requested", ({ requesterId, name }) => {
+      // If the requester is the current player, show waiting state; otherwise
+      // show that opponent requested and allow accept.
+      if (requesterId === socket.id) {
+        setRematchRequested(true);
+        // start local timeout to auto-cancel
+        if (rematchTimeoutRef.current) clearTimeout(rematchTimeoutRef.current);
+        rematchTimeoutRef.current = setTimeout(() => {
+          socket.emit("rematch-cancel");
+          setRematchRequested(false);
+          setToast("Rematch request timed out");
+          rematchTimeoutRef.current = null;
+        }, REMATCH_TIMEOUT_MS);
+      } else {
+        setOpponentRematchRequested({ id: requesterId, name });
+        setToast(`${getPlayerLabel(requesterId)} (${name}) wants a rematch`);
+        // start a timeout so the opponent's request expires if not accepted
+        if (rematchTimeoutRef.current) clearTimeout(rematchTimeoutRef.current);
+        rematchTimeoutRef.current = setTimeout(() => {
+          // notify server to remove their request if it still exists
+          socket.emit("rematch-cancel");
+          setOpponentRematchRequested(null);
+          setToast("Opponent's rematch request timed out");
+          rematchTimeoutRef.current = null;
+        }, REMATCH_TIMEOUT_MS);
+      }
+    });
+
+    socket.on("rematch-cancelled", ({ requesterId, name }) => {
+      // Clean up UI when someone cancels their request
+      if (requesterId === socket.id) {
+        setRematchRequested(false);
+      } else {
+        setOpponentRematchRequested(null);
+      }
+      setToast(`${name} cancelled their rematch request`);
+      if (rematchTimeoutRef.current) {
+        clearTimeout(rematchTimeoutRef.current);
+        rematchTimeoutRef.current = null;
+      }
+    });
+
+    // auto-clear toast after 3s
+    if (toast) {
+      const t = setTimeout(() => setToast(null), 3000);
+      return () => clearTimeout(t);
+    }
 
     const handleChat = (msg) => {
       setChat((prev) => [...prev, msg]);
@@ -68,6 +129,18 @@ const Game = () => {
 
   const rematch = () => {
     socket.emit("rematch");
+    setRematchRequested(true);
+  };
+
+  const acceptRematch = () => {
+    // Accepting is just emitting rematch as well
+    socket.emit("rematch");
+    setRematchRequested(true);
+    setOpponentRematchRequested(null);
+    if (rematchTimeoutRef.current) {
+      clearTimeout(rematchTimeoutRef.current);
+      rematchTimeoutRef.current = null;
+    }
   };
 
   const sendChat = () => {
@@ -79,6 +152,14 @@ const Game = () => {
 
   const getPlayerName = (id) =>
     players.find((p) => p.id === id)?.name || "Unknown";
+
+  const getPlayerLabel = (id) => {
+    if (!players || players.length === 0) return "Player";
+    if (id === socket.id) return "You";
+    const idx = players.findIndex((p) => p.id === id);
+    // players array order: index 0 -> Player 1, index 1 -> Player 2
+    return idx === 0 ? "Player 1" : idx === 1 ? "Player 2" : "Player";
+  };
 
   return (
     <div className="min-h-screen bg-gray-900 text-white flex flex-col md:flex-row">
@@ -142,7 +223,7 @@ const Game = () => {
               {roundResult === socket.id
                 ? "🎉 You won!"
                 : roundResult === null
-                ? "🤝 Draw!"
+                ? "🤝 Tie!"
                 : "😞 You lost!"}
             </h3>
             <p className="text-gray-300 mb-1">
@@ -154,12 +235,35 @@ const Game = () => {
                 {Object.entries(moves).find(([id]) => id !== socket.id)?.[1]}
               </strong>
             </p>
-            <button
-              onClick={rematch}
-              className="px-8 py-2 rounded-full bg-green-600 hover:bg-green-700 text-white font-semibold text-lg transition hover:scale-105 shadow"
-            >
-              🔁 Rematch
-            </button>
+            <div className="flex flex-col items-center gap-2">
+              {opponentRematchRequested ? (
+                <div className="text-sm text-gray-300 mb-2">
+                  {getPlayerLabel(opponentRematchRequested.id)} (
+                  {getPlayerName(opponentRematchRequested.id)}) wants a rematch.
+                </div>
+              ) : null}
+
+              <button
+                onClick={rematch}
+                disabled={rematchRequested}
+                className={`px-8 py-2 rounded-full text-white font-semibold text-lg transition hover:scale-105 shadow ${
+                  rematchRequested
+                    ? "bg-gray-600 cursor-not-allowed"
+                    : "bg-green-600 hover:bg-green-700"
+                }`}
+              >
+                {rematchRequested ? "Waiting for opponent..." : "🔁 Rematch"}
+              </button>
+
+              {!rematchRequested && opponentRematchRequested ? (
+                <button
+                  onClick={acceptRematch}
+                  className="px-6 py-2 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm mt-2"
+                >
+                  Accept Rematch
+                </button>
+              ) : null}
+            </div>
           </div>
         )}
       </div>
@@ -169,6 +273,16 @@ const Game = () => {
         <h3 className="text-xl mb-3 font-semibold text-center border-b border-gray-600 pb-2">
           💬 Chat
         </h3>
+
+        {/* Toast */}
+        {toast ? (
+          <div className="fixed bottom-6 right-6 bg-gray-900 text-white px-4 py-2 rounded shadow-lg z-50">
+            <div className="text-sm">{toast}</div>
+            <div className="text-xs text-gray-400 mt-1">
+              (This will disappear or update automatically)
+            </div>
+          </div>
+        ) : null}
 
         <div className="flex-1 overflow-y-auto space-y-3 px-1 py-2 bg-gray-900 rounded shadow-inner">
           {chat.map((msg, i) => (

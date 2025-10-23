@@ -240,6 +240,31 @@ io.on("connection", (socket) => {
     }
   });
 
+  socket.on("player-ready", (ready) => {
+    const roomId = socket.data.roomId;
+    const room = rooms.get(roomId);
+    if (!room) return;
+
+    // Set player's ready state
+    const player = room.players.find((p) => p.id === socket.id);
+    if (player) {
+      player.ready = ready;
+      io.to(roomId).emit("player-ready", { playerId: socket.id, ready });
+    }
+  });
+
+  socket.on("start-game", () => {
+    const roomId = socket.data.roomId;
+    const room = rooms.get(roomId);
+    if (!room) return;
+
+    // Check if all players are ready
+    const allReady = room.players.every((p) => p.ready);
+    if (allReady) {
+      io.to(roomId).emit("game-start");
+    }
+  });
+
   // ✅ Attach chat handler ONCE per connection
   socket.on("chat-message", (text) => {
     const roomId = socket.data.roomId;

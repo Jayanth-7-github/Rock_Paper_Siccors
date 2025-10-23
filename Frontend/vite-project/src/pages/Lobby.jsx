@@ -9,6 +9,8 @@ const Lobby = () => {
   const { roomId } = useParams();
   const navigate = useNavigate();
   const [players, setPlayers] = useState([]);
+  const [readyState, setReadyState] = useState({});
+  const [isReady, setIsReady] = useState(false);
 
   useEffect(() => {
     if (!player.name) {
@@ -25,9 +27,14 @@ const Lobby = () => {
 
     socket.on("both-players-joined", ({ players }) => {
       setPlayers(players);
-      setTimeout(() => {
-        navigate(`/game/${roomId}`);
-      }, 1500);
+    });
+
+    socket.on("player-ready", ({ playerId, ready }) => {
+      setReadyState((prev) => ({ ...prev, [playerId]: ready }));
+    });
+
+    socket.on("game-start", () => {
+      navigate(`/game/${roomId}`);
     });
 
     socket.on("opponent-left", () => {
@@ -68,9 +75,21 @@ const Lobby = () => {
                 </div>
               </div>
               <div className="ml-auto">
-                <span className="bg-green-500/10 text-green-400 px-3 py-1 rounded-full text-sm">
-                  Ready
-                </span>
+                {isReady ? (
+                  <span className="bg-green-500/20 text-green-400 px-3 py-1 rounded-full text-sm">
+                    Ready
+                  </span>
+                ) : (
+                  <button
+                    onClick={() => {
+                      setIsReady(true);
+                      socket.emit("player-ready", true);
+                    }}
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded-full text-sm"
+                  >
+                    Ready?
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -109,12 +128,23 @@ const Lobby = () => {
         </div>
       </div>
 
-      {/* Loading Animation */}
-      {players.length < 2 && (
-        <div className="text-center">
+      {/* Ready State and Game Start */}
+      {players.length === 2 &&
+      Object.keys(readyState).length === 2 &&
+      Object.values(readyState).every((ready) => ready) ? (
+        <button
+          onClick={() => socket.emit("start-game")}
+          className="mt-6 bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-xl text-lg font-semibold shadow-lg transition-all hover:scale-105"
+        >
+          Start Game
+        </button>
+      ) : (
+        <div className="text-center mt-6">
           <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-[#8b9eff] mb-2"></div>
           <p className="text-[#8892b0] text-sm">
-            Game will start automatically when opponent joins...
+            {players.length < 2
+              ? "Waiting for opponent to join..."
+              : "Waiting for all players to be ready..."}
           </p>
         </div>
       )}

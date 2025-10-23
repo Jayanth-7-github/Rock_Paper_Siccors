@@ -26,7 +26,7 @@ const Lobby = () => {
         // small visual confirmation
         // using alert is intrusive; use a temporary DOM update instead
         // but keep simple: brief toast-like alert
-        alert("Room ID copied to clipboard");
+        // alert("Room ID copied to clipboard");
       })
       .catch(() => {
         alert("Unable to copy. Please copy manually: " + roomId);

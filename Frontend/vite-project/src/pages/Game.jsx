@@ -47,6 +47,16 @@ const Game = () => {
         scores,
         result,
       });
+      // show a short toast so it's obvious a round result arrived
+      setToast(
+        result === "tie"
+          ? "Round ended in a tie"
+          : result === "win"
+          ? "You won the round"
+          : result === "lose"
+          ? "You lost the round"
+          : "Round finished"
+      );
       setMoves(moves || {});
       setScores(scores || []);
       setRoundResult(typeof winnerId !== "undefined" ? winnerId : null);

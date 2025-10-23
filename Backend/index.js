@@ -50,9 +50,6 @@ io.on("connection", (socket) => {
 
     console.log(`${name} joined room ${roomId}`);
 
-    // Notify all clients in room about updated players
-    io.to(roomId).emit("update-players", { players: room.players });
-
     if (room.players.length === 2) {
       io.to(roomId).emit("both-players-joined", {
         players: room.players,
@@ -83,13 +80,6 @@ io.on("connection", (socket) => {
         room.scores.set(winnerId, room.scores.get(winnerId) + 1);
       }
 
-      // derive per-player result string for convenience (win/lose/tie)
-      const resultForSocket =
-        result === "draw" ? "tie" : result === "win" ? "win" : "lose";
-      const resultForOpponent =
-        result === "draw" ? "tie" : result === "win" ? "lose" : "win";
-
-      // Emit to the room the round-result with generic payload
       io.to(roomId).emit("round-result", {
         moves: {
           [socket.id]: socket.data.move,
@@ -97,53 +87,10 @@ io.on("connection", (socket) => {
         },
         winnerId,
         scores: Array.from(room.scores.entries()),
-        // include a neutral result; individual clients can derive their own, but
-        // also include explicit results per player socket id so frontend can prefer it
-        resultsById: {
-          [socket.id]: resultForSocket,
-          [opponentSocket.id]: resultForOpponent,
-        },
-        // backwards-compatible `result` field for convenience when emitted to each socket
-      });
-
-      // Also emit individualized `round-result` events with `result` field to each participant
-      socket.emit("round-result", {
-        moves: {
-          [socket.id]: socket.data.move,
-          [opponentSocket.id]: opponentSocket.data.move,
-        },
-        winnerId,
-        scores: Array.from(room.scores.entries()),
-        result: resultForSocket,
-      });
-
-      opponentSocket.emit("round-result", {
-        moves: {
-          [socket.id]: socket.data.move,
-          [opponentSocket.id]: opponentSocket.data.move,
-        },
-        winnerId,
-        scores: Array.from(room.scores.entries()),
-        result: resultForOpponent,
       });
 
       socket.data.move = null;
       opponentSocket.data.move = null;
-
-      // Check for match end (first to 3 wins)
-      const WIN_THRESHOLD = 3;
-      const maybeWinner = Array.from(room.scores.entries()).find(
-        ([, s]) => s >= WIN_THRESHOLD
-      );
-      if (maybeWinner) {
-        const [winnerSocketId] = maybeWinner;
-        io.to(roomId).emit("match-end", {
-          winnerId: winnerSocketId,
-          scores: Array.from(room.scores.entries()),
-        });
-        // Reset scores for next match but keep players in room
-        room.scores.forEach((_, key) => room.scores.set(key, 0));
-      }
     }
   });
 
@@ -153,48 +100,10 @@ io.on("connection", (socket) => {
     if (!room) return;
 
     room.rematchRequests.add(socket.id);
-    // Notify both players that a rematch was requested (who requested it)
-    io.to(roomId).emit("rematch-requested", {
-      requesterId: socket.id,
-      name: socket.data.name,
-    });
-
     if (room.rematchRequests.size === 2) {
       room.rematchRequests.clear();
       io.to(roomId).emit("rematch-start");
     }
-  });
-
-  socket.on("rematch-cancel", () => {
-    const roomId = socket.data.roomId;
-    const room = rooms.get(roomId);
-    if (!room) return;
-    room.rematchRequests.delete(socket.id);
-    io.to(roomId).emit("rematch-cancelled", {
-      requesterId: socket.id,
-      name: socket.data.name,
-    });
-  });
-
-  // Allow client to explicitly leave the room
-  socket.on("leave-room", () => {
-    const roomId = socket.data.roomId;
-    const room = rooms.get(roomId);
-    if (!room) return;
-    // remove player and cleanup similar to disconnect
-    room.players = room.players.filter((p) => p.id !== socket.id);
-    room.scores.delete(socket.id);
-    room.rematchRequests.delete(socket.id);
-    socket.leave(roomId);
-    socket.data.roomId = null;
-    socket
-      .to(roomId)
-      .emit("opponent-left", {
-        name: socket.data.name,
-        message: `${socket.data.name} left the room.`,
-      });
-    io.to(roomId).emit("update-players", { players: room.players });
-    if (room.players.length === 0) rooms.delete(roomId);
   });
 
   // ✅ Attach chat handler ONCE per connection

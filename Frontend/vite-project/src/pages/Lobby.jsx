@@ -43,30 +43,32 @@ const Lobby = () => {
   }, [player, roomId, navigate]);
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white flex flex-col items-center justify-center p-6 bg-gradient-to-br from-gray-900 via-gray-800 to-black">
+    <div className="min-h-screen bg-[#0a192f] text-white flex flex-col items-center justify-center p-6">
       {/* Room Info Card */}
-      <div className="bg-gray-800 p-8 rounded-2xl shadow-2xl max-w-md w-full mb-8">
+      <div className="bg-[#0f2347] p-8 rounded-2xl shadow-2xl max-w-md w-full mb-8">
         <div className="text-center mb-6">
-          <h2 className="text-2xl font-medium text-gray-400 mb-2">ROOM CODE</h2>
-          <div className="text-4xl font-bold text-indigo-400">#{roomId}</div>
+          <h2 className="text-2xl font-medium text-[#8892b0] mb-2">
+            ROOM CODE
+          </h2>
+          <div className="text-4xl font-bold text-[#8b9eff]">#{roomId}</div>
         </div>
 
         {/* Players List */}
         <div className="space-y-4">
           {/* Current Player */}
-          <div className="bg-gray-700/50 p-4 rounded-xl">
+          <div className="bg-[#1a2b47] p-4 rounded-xl">
             <div className="flex items-center">
-              <div className="w-10 h-10 bg-indigo-600 rounded-full flex items-center justify-center">
+              <div className="w-10 h-10 bg-[#4338ca] rounded-full flex items-center justify-center">
                 <span className="text-xl">🎮</span>
               </div>
               <div className="ml-4">
-                <div className="text-sm text-gray-400">Player 1</div>
-                <div className="text-lg font-semibold text-indigo-400">
+                <div className="text-sm text-[#8892b0]">Player 1</div>
+                <div className="text-lg font-semibold text-[#8b9eff]">
                   {player.name}
                 </div>
               </div>
               <div className="ml-auto">
-                <span className="bg-green-500/20 text-green-400 px-3 py-1 rounded-full text-sm">
+                <span className="bg-green-500/10 text-green-400 px-3 py-1 rounded-full text-sm">
                   Ready
                 </span>
               </div>
@@ -74,30 +76,32 @@ const Lobby = () => {
           </div>
 
           {/* Opponent (if joined) or Waiting */}
-          <div className="bg-gray-700/50 p-4 rounded-xl">
+          <div className="bg-[#1a2b47] p-4 rounded-xl">
             <div className="flex items-center">
-              <div className="w-10 h-10 bg-gray-600 rounded-full flex items-center justify-center">
+              <div className="w-10 h-10 bg-[#374151] rounded-full flex items-center justify-center">
                 <span className="text-xl">
                   {players.length > 1 ? "🎮" : "⌛"}
                 </span>
               </div>
               <div className="ml-4">
-                <div className="text-sm text-gray-400">Player 2</div>
-                <div className="text-lg font-semibold text-gray-400">
-                  {players.length > 1
-                    ? players.find((p) => p.id !== socket.id)?.name
+                <div className="text-sm text-[#8892b0]">Player 2</div>
+                <div className="text-lg font-semibold text-[#8892b0]">
+                  {players.filter((p) => p.id !== player.id).length > 0
+                    ? players.find((p) => p.id !== player.id)?.name
                     : "Waiting for opponent..."}
                 </div>
               </div>
               <div className="ml-auto">
                 <span
                   className={`px-3 py-1 rounded-full text-sm ${
-                    players.length > 1
-                      ? "bg-green-500/20 text-green-400"
-                      : "bg-yellow-500/20 text-yellow-400"
+                    players.filter((p) => p.id !== player.id).length > 0
+                      ? "bg-green-500/10 text-green-400"
+                      : "bg-yellow-500/10 text-yellow-400"
                   }`}
                 >
-                  {players.length > 1 ? "Ready" : "Waiting"}
+                  {players.filter((p) => p.id !== player.id).length > 0
+                    ? "Ready"
+                    : "Waiting"}
                 </span>
               </div>
             </div>
@@ -108,8 +112,8 @@ const Lobby = () => {
       {/* Loading Animation */}
       {players.length < 2 && (
         <div className="text-center">
-          <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-indigo-500 mb-2"></div>
-          <p className="text-gray-400 text-sm">
+          <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-[#8b9eff] mb-2"></div>
+          <p className="text-[#8892b0] text-sm">
             Game will start automatically when opponent joins...
           </p>
         </div>

@@ -38,9 +38,10 @@ const Game = () => {
       setMoves(moves);
       setScores(scores);
       setRoundResult(winnerId);
-      setResultType(
-        result || (winnerId ? (winnerId === socket.id ? "win" : "lose") : "tie")
-      );
+      // Resolve result from canonical winnerId so each client sees their own perspective.
+      const resolved =
+        winnerId == null ? "tie" : winnerId === socket.id ? "win" : "lose";
+      setResultType(resolved);
       setHasPicked(false);
     });
 

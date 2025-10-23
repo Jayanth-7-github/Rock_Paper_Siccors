@@ -30,11 +30,18 @@ const Lobby = () => {
     });
 
     socket.on("player-ready", ({ playerId, ready }) => {
-      setReadyState((prev) => ({ ...prev, [playerId]: ready }));
-    });
-
-    socket.on("game-start", () => {
-      navigate(`/game/${roomId}`);
+      setReadyState((prev) => {
+        const newState = { ...prev, [playerId]: ready };
+        // If both players are ready, game will start automatically
+        if (
+          players.length === 2 &&
+          Object.keys(newState).length === 2 &&
+          Object.values(newState).every((r) => r)
+        ) {
+          navigate(`/game/${roomId}`);
+        }
+        return newState;
+      });
     });
 
     socket.on("opponent-left", () => {
@@ -46,6 +53,7 @@ const Lobby = () => {
       socket.off("room-full");
       socket.off("both-players-joined");
       socket.off("opponent-left");
+      socket.off("player-ready");
     };
   }, [player, roomId, navigate]);
 
@@ -71,7 +79,7 @@ const Lobby = () => {
               <div className="ml-4">
                 <div className="text-sm text-[#8892b0]">Player 1</div>
                 <div className="text-lg font-semibold text-[#8b9eff]">
-                  {player.name}
+                  {players[0]?.name || player.name}
                 </div>
               </div>
               <div className="ml-auto">
@@ -105,21 +113,23 @@ const Lobby = () => {
               <div className="ml-4">
                 <div className="text-sm text-[#8892b0]">Player 2</div>
                 <div className="text-lg font-semibold text-[#8892b0]">
-                  {players.filter((p) => p.id !== player.id).length > 0
-                    ? players.find((p) => p.id !== player.id)?.name
+                  {players.length > 1
+                    ? players[1]?.name || "Waiting for opponent..."
                     : "Waiting for opponent..."}
                 </div>
               </div>
               <div className="ml-auto">
                 <span
                   className={`px-3 py-1 rounded-full text-sm ${
-                    players.filter((p) => p.id !== player.id).length > 0
+                    players.length > 1 && readyState[players[1]?.id]
                       ? "bg-green-500/10 text-green-400"
                       : "bg-yellow-500/10 text-yellow-400"
                   }`}
                 >
-                  {players.filter((p) => p.id !== player.id).length > 0
-                    ? "Ready"
+                  {players.length > 1
+                    ? readyState[players[1]?.id]
+                      ? "Ready"
+                      : "Not Ready"
                     : "Waiting"}
                 </span>
               </div>
@@ -128,26 +138,17 @@ const Lobby = () => {
         </div>
       </div>
 
-      {/* Ready State and Game Start */}
-      {players.length === 2 &&
-      Object.keys(readyState).length === 2 &&
-      Object.values(readyState).every((ready) => ready) ? (
-        <button
-          onClick={() => socket.emit("start-game")}
-          className="mt-6 bg-green-600 hover:bg-green-700 text-white px-6 py-3 rounded-xl text-lg font-semibold shadow-lg transition-all hover:scale-105"
-        >
-          Start Game
-        </button>
-      ) : (
-        <div className="text-center mt-6">
-          <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-[#8b9eff] mb-2"></div>
-          <p className="text-[#8892b0] text-sm">
-            {players.length < 2
-              ? "Waiting for opponent to join..."
-              : "Waiting for all players to be ready..."}
-          </p>
-        </div>
-      )}
+      {/* Waiting Status */}
+      <div className="text-center mt-6">
+        <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-[#8b9eff] mb-2"></div>
+        <p className="text-[#8892b0] text-sm">
+          {players.length < 2
+            ? "Waiting for opponent to join..."
+            : !isReady
+            ? "Click Ready when you're ready to play!"
+            : "Waiting for opponent to be ready..."}
+        </p>
+      </div>
     </div>
   );
 };

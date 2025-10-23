@@ -11,6 +11,7 @@ const Game = () => {
   const navigate = useNavigate();
 
   const [players, setPlayers] = useState([]);
+  const playersRef = React.useRef(players);
   const [scores, setScores] = useState([]);
   // roundResult now stores winnerId (string) OR null; resultType stores 'tie'|'win'|'lose' explicitly from server
   const [roundResult, setRoundResult] = useState(null);
@@ -29,19 +30,30 @@ const Game = () => {
   const TOAST_TIMEOUT_MS = 10000; // 10 seconds
 
   useEffect(() => {
+    // keep ref up-to-date so socket handlers can read latest players
+    playersRef.current = players;
+
     socket.on("both-players-joined", ({ players: ps, scores: sc }) => {
       setPlayers(ps);
       setScores(sc);
+      console.debug("both-players-joined", { ps, sc });
     });
 
-    socket.on("round-result", ({ moves, winnerId, scores }) => {
-      setMoves(moves);
-      setScores(scores);
-      setRoundResult(winnerId);
-      // Derive result type from winnerId - if null it's a tie, if it matches socket.id player won, otherwise lost
-      const resultType =
-        winnerId === null ? "tie" : winnerId === socket.id ? "win" : "lose";
-      setResultType(resultType);
+    socket.on("round-result", ({ moves, winnerId, scores, result }) => {
+      // prefer server-provided `result` when available
+      console.debug("round-result received", {
+        moves,
+        winnerId,
+        scores,
+        result,
+      });
+      setMoves(moves || {});
+      setScores(scores || []);
+      setRoundResult(typeof winnerId !== "undefined" ? winnerId : null);
+      const derived =
+        result ??
+        (winnerId === null ? "tie" : winnerId === socket.id ? "win" : "lose");
+      setResultType(derived);
       setHasPicked(false);
     });
 
@@ -122,7 +134,8 @@ const Game = () => {
     });
 
     socket.on("match-end", ({ winnerId, scores }) => {
-      const winner = players.find((p) => p.id === winnerId);
+      // use playersRef to get the latest players array inside handler
+      const winner = playersRef.current?.find((p) => p.id === winnerId);
       const isLocalPlayerWinner = winnerId === socket.id;
       setToast(
         `🏆 ${
@@ -139,10 +152,13 @@ const Game = () => {
     });
 
     socket.on("error", (message) => {
+      console.warn("socket error:", message);
       setToast(`⚠️ ${message}`);
     });
 
     setChat([]);
+
+    console.debug("Game.jsx mounted, socket id:", socket.id);
 
     return () => {
       socket.off("chat-message", handleChat);
@@ -163,6 +179,11 @@ const Game = () => {
       }
     };
   }, [navigate]);
+
+  // keep playersRef updated whenever players state changes
+  useEffect(() => {
+    playersRef.current = players;
+  }, [players]);
 
   // handle auto-hide for toast separately so socket listeners effect stays stable
   useEffect(() => {

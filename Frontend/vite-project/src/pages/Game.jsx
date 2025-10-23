@@ -34,14 +34,14 @@ const Game = () => {
       setScores(sc);
     });
 
-    socket.on("round-result", ({ moves, winnerId, scores, result }) => {
+    socket.on("round-result", ({ moves, winnerId, scores }) => {
       setMoves(moves);
       setScores(scores);
       setRoundResult(winnerId);
-      // Resolve result from canonical winnerId so each client sees their own perspective.
-      const resolved =
-        winnerId == null ? "tie" : winnerId === socket.id ? "win" : "lose";
-      setResultType(resolved);
+      // Derive result type from winnerId - if null it's a tie, if it matches socket.id player won, otherwise lost
+      const resultType =
+        winnerId === null ? "tie" : winnerId === socket.id ? "win" : "lose";
+      setResultType(resultType);
       setHasPicked(false);
     });
 

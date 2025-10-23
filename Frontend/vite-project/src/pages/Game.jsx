@@ -229,25 +229,28 @@ const Game = () => {
   return (
     <div className="min-h-screen bg-gray-900 text-white flex flex-col md:flex-row">
       {/* Game Panel */}
-      <div className="flex-1 flex flex-col items-center p-6 bg-gradient-to-br from-gray-900 via-gray-800 to-black">
+      <div className="flex-1 flex flex-col items-center p-6 bg-gradient-to-br from-gray-900 via-gray-800 to-black relative">
+        {/* Exit Button */}
+        <button
+          onClick={exitRoom}
+          className="absolute top-4 left-4 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-lg flex items-center gap-2"
+          title="Exit Room"
+        >
+          <span>✖</span>
+          <span>Exit Game</span>
+        </button>
+
         {/* Player Name */}
         <div className="mb-2 text-lg text-white font-medium">
           Welcome,{" "}
           <span className="text-indigo-400 font-bold">{player.name}</span>
         </div>
         {/* Room Code */}
-        <div className="mb-4 relative">
+        <div className="mb-4">
           <span className="text-sm uppercase text-gray-400">Room</span>
           <div className="text-3xl font-bold bg-gray-800 px-4 py-2 rounded-lg text-indigo-400 shadow">
             #{roomId}
           </div>
-          <button
-            onClick={exitRoom}
-            className="absolute -top-2 -right-2 bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded-full text-sm font-semibold transition-colors shadow-lg"
-            title="Exit Room"
-          >
-            Exit ✖
-          </button>
         </div>
 
         {/* Scoreboard
@@ -291,8 +294,13 @@ const Game = () => {
         {/* Result Panel */}
         {roundResult !== null && (
           <div className="mt-6 text-center bg-gray-800 p-6 rounded-xl shadow-md w-full max-w-md">
-            <h3 className="text-2xl font-bold mb-3 text-green-400">
-              {roundResult === null
+            <h3
+              className={`text-2xl font-bold mb-3 ${
+                roundResult === null ? "text-yellow-400" : "text-green-400"
+              }`}
+            >
+              {moves[socket.id] ===
+              Object.values(moves).find((move) => move !== moves[socket.id])
                 ? "🤝 Tie!"
                 : roundResult === socket.id
                 ? "🎉 You won!"

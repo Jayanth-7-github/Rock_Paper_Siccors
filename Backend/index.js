@@ -11,7 +11,7 @@ app.use(cors());
 
 const io = new Server(server, {
   cors: {
-    origin: "https://frolicking-praline-14031b.netlify.app",
+    origin: "https://frolicking-praline-14031b.netlify.app/",
     methods: ["GET", "POST"],
   },
 });
@@ -69,14 +69,14 @@ io.on("connection", (socket) => {
 
     if (opponentSocket && opponentSocket.data.move) {
       const result = getResult(socket.data.move, opponentSocket.data.move);
-      const winnerId =
-        result === "draw"
-          ? null
-          : result === "win"
-          ? socket.id
-          : opponentSocket.id;
+      const isDraw = result === "draw";
+      const winnerId = isDraw
+        ? "draw"
+        : result === "win"
+        ? socket.id
+        : opponentSocket.id;
 
-      if (winnerId) {
+      if (!isDraw && winnerId) {
         room.scores.set(winnerId, room.scores.get(winnerId) + 1);
       }
 
@@ -86,6 +86,7 @@ io.on("connection", (socket) => {
           [opponentSocket.id]: opponentSocket.data.move,
         },
         winnerId,
+        isDraw,
         scores: Array.from(room.scores.entries()),
       });
 
@@ -94,16 +95,35 @@ io.on("connection", (socket) => {
     }
   });
 
-  socket.on("rematch", () => {
+  socket.on("rematch-request", () => {
     const roomId = socket.data.roomId;
     const room = rooms.get(roomId);
     if (!room) return;
 
     room.rematchRequests.add(socket.id);
+
+    // Notify all players about the rematch request
+    io.to(roomId).emit("rematch-requested", {
+      requesterId: socket.id,
+      requesterName: socket.data.name,
+    });
+
     if (room.rematchRequests.size === 2) {
       room.rematchRequests.clear();
       io.to(roomId).emit("rematch-start");
     }
+  });
+
+  socket.on("rematch-decline", () => {
+    const roomId = socket.data.roomId;
+    const room = rooms.get(roomId);
+    if (!room) return;
+
+    room.rematchRequests.clear();
+    io.to(roomId).emit("rematch-declined", {
+      declinerId: socket.id,
+      declinerName: socket.data.name,
+    });
   });
 
   // ✅ Attach chat handler ONCE per connection

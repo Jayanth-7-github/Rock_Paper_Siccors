@@ -12,7 +12,9 @@ const Game = () => {
 
   const [players, setPlayers] = useState([]);
   const [scores, setScores] = useState([]);
+  // roundResult now stores winnerId (string) OR null; resultType stores 'tie'|'win'|'lose' explicitly from server
   const [roundResult, setRoundResult] = useState(null);
+  const [resultType, setResultType] = useState(null);
   const [moves, setMoves] = useState({});
   const [chat, setChat] = useState([]);
   const [message, setMessage] = useState("");
@@ -32,15 +34,19 @@ const Game = () => {
       setScores(sc);
     });
 
-    socket.on("round-result", ({ moves, winnerId, scores }) => {
+    socket.on("round-result", ({ moves, winnerId, scores, result }) => {
       setMoves(moves);
       setScores(scores);
       setRoundResult(winnerId);
+      setResultType(
+        result || (winnerId ? (winnerId === socket.id ? "win" : "lose") : "tie")
+      );
       setHasPicked(false);
     });
 
     socket.on("rematch-start", () => {
       setRoundResult(null);
+      setResultType(null);
       setMoves({});
       setHasPicked(false);
       setRematchRequested(false);
@@ -160,7 +166,8 @@ const Game = () => {
   // handle auto-hide for toast separately so socket listeners effect stays stable
   useEffect(() => {
     if (toast) {
-      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+      setRoundResult(null);
+      setResultType(null);
       toastTimeoutRef.current = setTimeout(() => {
         setToast(null);
         toastTimeoutRef.current = null;
@@ -175,7 +182,8 @@ const Game = () => {
   }, [toast]);
 
   const sendMove = (choice) => {
-    if (!hasPicked && roundResult === null) {
+    // prevent choosing when waiting for round result to be displayed
+    if (!hasPicked && resultType === null) {
       socket.emit("player-move", choice);
       setHasPicked(true);
     }
@@ -292,19 +300,20 @@ const Game = () => {
         </div>
 
         {/* Result Panel */}
-        {roundResult !== null && (
+        {(resultType !== null || Object.keys(moves).length > 0) && (
           <div className="mt-6 text-center bg-gray-800 p-6 rounded-xl shadow-md w-full max-w-md">
             <h3
               className={`text-2xl font-bold mb-3 ${
-                roundResult === null ? "text-yellow-400" : "text-green-400"
+                resultType === "tie" ? "text-yellow-400" : "text-green-400"
               }`}
             >
-              {moves[socket.id] ===
-              Object.values(moves).find((move) => move !== moves[socket.id])
+              {resultType === "tie"
                 ? "🤝 Tie!"
-                : roundResult === socket.id
+                : resultType === "win"
                 ? "🎉 You won!"
-                : "😞 You lost!"}
+                : resultType === "lose"
+                ? "😞 You lost!"
+                : "Round finished"}
             </h3>
             <p className="text-gray-300 mb-1">
               Your Move: <strong>{moves[socket.id]}</strong>

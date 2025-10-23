@@ -126,12 +126,15 @@ io.on("connection", (socket) => {
         room.scores.set(opponentSocket.id, 0);
       }
 
+      // Include explicit result ('tie' | 'win' | 'lose') in the payload so frontend
+      // doesn't have to infer tie from a null winnerId.
       logGameEvent(roomId, "round-result", {
         moves: {
           [socket.id]: socket.data.move,
           [opponentSocket.id]: opponentSocket.data.move,
         },
         winnerId,
+        result,
       });
 
       io.to(roomId).emit("round-result", {
@@ -141,6 +144,7 @@ io.on("connection", (socket) => {
         },
         winnerId,
         scores: Array.from(room.scores.entries()),
+        result, // 'tie' | 'win' | 'lose'
       });
 
       socket.data.move = null;
@@ -203,6 +207,9 @@ io.on("connection", (socket) => {
       playerId: socket.id,
     });
 
+    // Store the name before cleaning up
+    const playerName = socket.data.name;
+
     // Clean up player data
     socket.data.move = null;
     room.players = room.players.filter((p) => p.id !== socket.id);
@@ -216,14 +223,14 @@ io.on("connection", (socket) => {
 
     // Notify other players
     socket.to(roomId).emit("opponent-left", {
-      name: socket.data.name,
-      message: `${socket.data.name} has left the game`,
+      name: playerName,
+      message: `${playerName} has left the game`,
     });
 
     // Add system message to chat
     io.to(roomId).emit("chat-message", {
       sender: "System",
-      text: `${socket.data.name} has left the game`,
+      text: `${playerName} has left the game`,
       type: "system",
     });
 
@@ -251,7 +258,8 @@ io.on("connection", (socket) => {
     const room = rooms.get(roomId);
     if (!room) return;
 
-    console.log(`${socket.id} disconnected`);
+    const playerName = socket.data.name;
+    console.log(`${playerName} (${socket.id}) disconnected`);
 
     // Clear this player's move
     socket.data.move = null;
@@ -269,7 +277,17 @@ io.on("connection", (socket) => {
     room.scores.delete(socket.id);
     room.rematchRequests.delete(socket.id);
 
-    socket.to(roomId).emit("opponent-left");
+    socket.to(roomId).emit("opponent-left", {
+      name: playerName,
+      message: `${playerName} has left the game`,
+    });
+
+    // Add system message to chat for disconnect
+    io.to(roomId).emit("chat-message", {
+      sender: "System",
+      text: `${playerName} has disconnected from the game`,
+      type: "system",
+    });
 
     if (room.players.length === 0) {
       rooms.delete(roomId);

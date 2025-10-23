@@ -1,8 +1,16 @@
 // src/pages/Lobby.jsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import socket from "../socket";
 import { usePlayer } from "../context/PlayerContext";
+
+const WaitingDots = ({ className = "" }) => (
+  <span className={`inline-flex ${className}`} aria-hidden>
+    <span className="w-2 h-2 bg-white rounded-full mr-1 animate-bounce-200" />
+    <span className="w-2 h-2 bg-white rounded-full mr-1 animate-bounce-400" />
+    <span className="w-2 h-2 bg-white rounded-full animate-bounce-600" />
+  </span>
+);
 
 const Lobby = () => {
   const { player } = usePlayer();
@@ -10,8 +18,23 @@ const Lobby = () => {
   const navigate = useNavigate();
   const [players, setPlayers] = useState([]);
 
+  const copyRoom = useCallback(() => {
+    if (!roomId) return;
+    navigator.clipboard
+      ?.writeText(roomId)
+      .then(() => {
+        // small visual confirmation
+        // using alert is intrusive; use a temporary DOM update instead
+        // but keep simple: brief toast-like alert
+        alert("Room ID copied to clipboard");
+      })
+      .catch(() => {
+        alert("Unable to copy. Please copy manually: " + roomId);
+      });
+  }, [roomId]);
+
   useEffect(() => {
-    if (!player.name) {
+    if (!player?.name) {
       navigate("/");
       return;
     }
@@ -23,11 +46,14 @@ const Lobby = () => {
       navigate("/");
     });
 
-    socket.on("both-players-joined", ({ players }) => {
-      setPlayers(players);
-      setTimeout(() => {
-        navigate(`/game/${roomId}`);
-      }, 1500);
+    socket.on("both-players-joined", ({ players: joined }) => {
+      setPlayers(joined || []);
+      // short entrance animation delay before routing
+      setTimeout(() => navigate(`/game/${roomId}`), 1200);
+    });
+
+    socket.on("update-players", ({ players: updated }) => {
+      setPlayers(updated || []);
     });
 
     socket.on("opponent-left", () => {
@@ -36,76 +62,98 @@ const Lobby = () => {
     });
 
     return () => {
+      // tell server we're leaving so it can free the slot
+      socket.emit("leave-room", { roomId, name: player.name });
       socket.off("room-full");
       socket.off("both-players-joined");
+      socket.off("update-players");
       socket.off("opponent-left");
     };
   }, [player, roomId, navigate]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-purple-900 to-purple-700 text-white flex flex-col items-center justify-center p-6 relative overflow-hidden">
-      {/* Spinning background decorations */}
-      <div className="absolute inset-0 overflow-hidden">
-        <div className="absolute top-1/4 left-1/4 w-64 h-64 bg-purple-500/10 rounded-full animate-[spin_8s_linear_infinite]"></div>
-        <div className="absolute bottom-1/4 right-1/4 w-48 h-48 bg-pink-500/10 rounded-full animate-[spin_6s_linear_infinite_reverse]"></div>
-      </div>
+    <div className="min-h-screen bg-gray-800 text-white flex items-center justify-center p-6">
+      <div className="w-full max-w-2xl bg-gray-900/60 backdrop-blur rounded-2xl p-8 shadow-xl border border-gray-700">
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h2 className="text-2xl font-semibold">Room</h2>
+            <p className="text-sm text-gray-300">
+              ID: <span className="font-mono text-white">{roomId}</span>
+            </p>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={copyRoom}
+              className="px-3 py-1 rounded-md bg-white/10 hover:bg-white/20 transition"
+            >
+              Copy
+            </button>
+            <button
+              onClick={() => {
+                socket.emit("leave-room", { roomId, name: player.name });
+                navigate("/");
+              }}
+              className="px-3 py-1 rounded-md bg-red-600/80 hover:bg-red-600 transition"
+            >
+              Leave
+            </button>
+          </div>
+        </div>
 
-      <div className="bg-purple-800/50 backdrop-blur-sm p-8 rounded-2xl shadow-xl border border-purple-600/30 relative">
-        {/* Spinning border effect */}
-        <div className="absolute inset-0 rounded-2xl border-2 border-transparent bg-gradient-to-r from-purple-400/30 to-pink-400/30 animate-[spin_4s_linear_infinite]"></div>
-
-        <div className="relative z-10">
-          <h2 className="text-4xl font-bold mb-6 text-center bg-clip-text text-transparent bg-gradient-to-r from-purple-200 to-pink-200">
-            Room: {roomId}
-          </h2>
-
-          <div className="relative">
-            {players.length < 2 && (
-              <div className="mb-6 text-center">
-                {/* Triple spinning loader */}
-                <div className="relative inline-block w-16 h-16 mb-4">
-                  <div className="absolute inset-0 rounded-full border-4 border-purple-200/20 border-t-purple-200 animate-[spin_1s_linear_infinite]"></div>
-                  <div className="absolute inset-2 rounded-full border-4 border-pink-200/20 border-t-pink-200 animate-[spin_1.5s_linear_infinite_reverse]"></div>
-                  <div className="absolute inset-4 rounded-full border-4 border-purple-100/20 border-t-purple-100 animate-[spin_2s_linear_infinite]"></div>
+        <div className="flex flex-col md:flex-row gap-6">
+          <div className="flex-1 p-4 bg-gray-800 rounded-lg border border-gray-700">
+            <h3 className="text-lg mb-3">Players</h3>
+            <div className="space-y-3">
+              {/* Show current player first */}
+              <div className="flex items-center gap-3 p-3 rounded-md bg-gray-900/40 border border-gray-700 animate-fade-in">
+                <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center text-xl font-semibold">
+                  {player.name?.charAt(0)?.toUpperCase() || "?"}
                 </div>
-                <p className="text-lg text-purple-200">
-                  Waiting for opponent...
-                </p>
+                <div className="flex-1">
+                  <div className="text-sm text-gray-300">You</div>
+                  <div className="font-medium">{player.name}</div>
+                </div>
+                <div className="text-green-400 font-semibold">Ready</div>
               </div>
-            )}
 
-            <div className="space-y-4">
-              {players.map((p, index) => (
+              {players.length === 0 && (
+                <div className="flex items-center gap-3 p-3 rounded-md bg-gray-900/20 border border-dashed border-gray-700 text-gray-400">
+                  <div className="w-10 h-10 rounded-full bg-gray-800/40 flex items-center justify-center">
+                    🤝
+                  </div>
+                  <div className="flex-1">
+                    Waiting for opponent <WaitingDots className="ml-2" />
+                  </div>
+                </div>
+              )}
+
+              {players.map((p) => (
                 <div
                   key={p.id}
-                  className="flex items-center gap-3 bg-purple-700/40 p-4 rounded-lg border border-purple-500/30 transition-all hover:bg-purple-600/40 relative group"
+                  className="flex items-center gap-3 p-3 rounded-md bg-gradient-to-r from-gray-900/40 to-gray-900/20 border border-gray-700 transform transition hover:scale-[1.01] animate-slide-up"
                 >
-                  {/* Spinning indicator */}
-                  <div className="relative h-6 w-6">
-                    <div className="absolute inset-0 rounded-full border-2 border-green-400/30 border-t-green-400 animate-[spin_2s_linear_infinite]"></div>
-                    <div className="absolute inset-1.5 rounded-full bg-green-400"></div>
+                  <div className="w-12 h-12 rounded-full bg-white/10 flex items-center justify-center text-xl font-semibold">
+                    {p.name?.charAt(0)?.toUpperCase() || "P"}
                   </div>
-                  <span className="text-xl font-medium text-purple-100">
-                    {p.name}
-                  </span>
-
-                  {/* Player join animation */}
-                  <div className="absolute inset-0 border-2 border-purple-400/0 group-hover:border-purple-400/30 rounded-lg animate-[spin_3s_linear_infinite] transition-colors"></div>
+                  <div className="flex-1">
+                    <div className="text-sm text-gray-300">Player</div>
+                    <div className="font-medium">{p.name}</div>
+                  </div>
+                  <div className="text-yellow-300">Connected</div>
                 </div>
               ))}
             </div>
           </div>
 
-          {players.length === 2 && (
-            <div className="mt-6 text-center">
-              <div className="inline-block">
-                <p className="text-purple-200 relative">
-                  Game starting in a moment...
-                  <span className="absolute inset-0 border-2 border-purple-300/20 border-t-purple-300 rounded-full animate-[spin_1s_linear_infinite]"></span>
-                </p>
-              </div>
+          <div className="w-80 p-4 bg-gray-800 rounded-lg border border-gray-700 flex flex-col items-center justify-center">
+            <h3 className="text-lg mb-2">Match Status</h3>
+            <div className="text-sm text-gray-300 mb-3">
+              Waiting for players to join
             </div>
-          )}
+            <div className="w-20 h-20 rounded-full bg-gradient-to-br from-green-400/20 to-green-400/10 flex items-center justify-center">
+              <WaitingDots className="" />
+            </div>
+          </div>
         </div>
       </div>
     </div>

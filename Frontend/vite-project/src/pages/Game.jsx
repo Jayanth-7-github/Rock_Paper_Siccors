@@ -12,6 +12,7 @@ const Game = () => {
 
   const [players, setPlayers] = useState([]);
   const [scores, setScores] = useState([]);
+  // roundResult now stores winnerId (string) OR null; resultType stores 'tie'|'win'|'lose' explicitly from server
   const [roundResult, setRoundResult] = useState(null);
   const [resultType, setResultType] = useState(null);
   const [moves, setMoves] = useState({});
@@ -19,12 +20,13 @@ const Game = () => {
   const [message, setMessage] = useState("");
   const [hasPicked, setHasPicked] = useState(false);
   const [rematchRequested, setRematchRequested] = useState(false);
-  const [opponentRematchRequested, setOpponentRematchRequested] = useState(null);
+  const [opponentRematchRequested, setOpponentRematchRequested] =
+    useState(null);
   const [toast, setToast] = useState(null);
   const toastTimeoutRef = React.useRef(null);
   const rematchTimeoutRef = React.useRef(null);
-  const REMATCH_TIMEOUT_MS = 15000;
-  const TOAST_TIMEOUT_MS = 10000;
+  const REMATCH_TIMEOUT_MS = 15000; // 15 seconds
+  const TOAST_TIMEOUT_MS = 10000; // 10 seconds
 
   useEffect(() => {
     socket.on("both-players-joined", ({ players: ps, scores: sc }) => {
@@ -36,6 +38,7 @@ const Game = () => {
       setMoves(moves);
       setScores(scores);
       setRoundResult(winnerId);
+      // Derive result type from winnerId - if null it's a tie, if it matches socket.id player won, otherwise lost
       const resultType =
         winnerId === null ? "tie" : winnerId === socket.id ? "win" : "lose";
       setResultType(resultType);
@@ -49,56 +52,84 @@ const Game = () => {
       setHasPicked(false);
       setRematchRequested(false);
       setOpponentRematchRequested(null);
-      if (rematchTimeoutRef.current) clearTimeout(rematchTimeoutRef.current);
-      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+      // clear any pending timeout
+      if (rematchTimeoutRef.current) {
+        clearTimeout(rematchTimeoutRef.current);
+        rematchTimeoutRef.current = null;
+      }
+      // also clear any toast timer and hide toast
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+        toastTimeoutRef.current = null;
+      }
       setToast(null);
     });
 
     socket.on("rematch-requested", ({ requesterId, name }) => {
+      // If the requester is the current player, show waiting state; otherwise
+      // show that opponent requested and allow accept.
       if (requesterId === socket.id) {
         setRematchRequested(true);
+        // start local timeout to auto-cancel
         if (rematchTimeoutRef.current) clearTimeout(rematchTimeoutRef.current);
         rematchTimeoutRef.current = setTimeout(() => {
           socket.emit("rematch-cancel");
           setRematchRequested(false);
           setToast("Rematch request timed out");
+          rematchTimeoutRef.current = null;
         }, REMATCH_TIMEOUT_MS);
       } else {
         setOpponentRematchRequested({ id: requesterId, name });
         setToast(`${getPlayerLabel(requesterId)} (${name}) wants a rematch`);
+        // start a timeout so the opponent's request expires if not accepted
         if (rematchTimeoutRef.current) clearTimeout(rematchTimeoutRef.current);
         rematchTimeoutRef.current = setTimeout(() => {
+          // notify server to remove their request if it still exists
           socket.emit("rematch-cancel");
           setOpponentRematchRequested(null);
           setToast("Opponent's rematch request timed out");
+          rematchTimeoutRef.current = null;
         }, REMATCH_TIMEOUT_MS);
       }
     });
 
     socket.on("rematch-cancelled", ({ requesterId, name }) => {
+      // Clean up UI when someone cancels their request
       if (requesterId === socket.id) {
         setRematchRequested(false);
       } else {
         setOpponentRematchRequested(null);
       }
       setToast(`${name} cancelled their rematch request`);
-      if (rematchTimeoutRef.current) clearTimeout(rematchTimeoutRef.current);
+      if (rematchTimeoutRef.current) {
+        clearTimeout(rematchTimeoutRef.current);
+        rematchTimeoutRef.current = null;
+      }
     });
 
-    const handleChat = (msg) => setChat((prev) => [...prev, msg]);
+    // socket listeners set up above; toast auto-hide handled in a separate effect
+
+    const handleChat = (msg) => {
+      setChat((prev) => [...prev, msg]);
+    };
+
     socket.on("chat-message", handleChat);
 
     socket.on("opponent-left", ({ name, message }) => {
       setToast(`👋 ${message}`);
-      setPlayers((prev) => prev.filter((p) => p.name !== name));
+      // Remove the opponent from players list
+      setPlayers((prevPlayers) => prevPlayers.filter((p) => p.name !== name));
     });
 
     socket.on("match-end", ({ winnerId, scores }) => {
       const winner = players.find((p) => p.id === winnerId);
-      const isLocalWinner = winnerId === socket.id;
+      const isLocalPlayerWinner = winnerId === socket.id;
       setToast(
-        `🏆 ${isLocalWinner ? "You" : winner?.name || "Opponent"} won the match!`
+        `🏆 ${
+          isLocalPlayerWinner ? "You" : winner?.name || "Opponent"
+        } won the match!`
       );
+      // Reset game state
       setRoundResult(null);
       setMoves({});
       setHasPicked(false);
@@ -111,6 +142,8 @@ const Game = () => {
       setToast(`⚠️ ${message}`);
     });
 
+    setChat([]);
+
     return () => {
       socket.off("chat-message", handleChat);
       socket.off("both-players-joined");
@@ -119,25 +152,38 @@ const Game = () => {
       socket.off("opponent-left");
       socket.off("match-end");
       socket.off("error");
-      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
-      if (rematchTimeoutRef.current) clearTimeout(rematchTimeoutRef.current);
+      // clear toast and rematch timers on unmount
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+        toastTimeoutRef.current = null;
+      }
+      if (rematchTimeoutRef.current) {
+        clearTimeout(rematchTimeoutRef.current);
+        rematchTimeoutRef.current = null;
+      }
     };
-  }, [navigate, players]);
+  }, [navigate]);
 
+  // handle auto-hide for toast separately so socket listeners effect stays stable
   useEffect(() => {
     if (toast) {
       setRoundResult(null);
       setResultType(null);
       toastTimeoutRef.current = setTimeout(() => {
         setToast(null);
+        toastTimeoutRef.current = null;
       }, TOAST_TIMEOUT_MS);
     }
     return () => {
-      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+        toastTimeoutRef.current = null;
+      }
     };
   }, [toast]);
 
   const sendMove = (choice) => {
+    // prevent choosing when waiting for round result to be displayed
     if (!hasPicked && resultType === null) {
       socket.emit("player-move", choice);
       setHasPicked(true);
@@ -150,11 +196,19 @@ const Game = () => {
   };
 
   const acceptRematch = () => {
+    // Accepting is just emitting rematch as well
     socket.emit("rematch");
     setRematchRequested(true);
     setOpponentRematchRequested(null);
-    if (rematchTimeoutRef.current) clearTimeout(rematchTimeoutRef.current);
-    if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+    if (rematchTimeoutRef.current) {
+      clearTimeout(rematchTimeoutRef.current);
+      rematchTimeoutRef.current = null;
+    }
+    // clear any toast when rematch is accepted
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+      toastTimeoutRef.current = null;
+    }
     setToast(null);
   };
 
@@ -177,75 +231,56 @@ const Game = () => {
     if (!players || players.length === 0) return "Player";
     if (id === socket.id) return "You";
     const idx = players.findIndex((p) => p.id === id);
+    // players array order: index 0 -> Player 1, index 1 -> Player 2
     return idx === 0 ? "Player 1" : idx === 1 ? "Player 2" : "Player";
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-purple-900 to-purple-700 text-white flex flex-col md:flex-row relative overflow-hidden">
-      {/* Background animation */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-purple-500/10 rounded-full animate-[spin_8s_linear_infinite]" />
-        <div className="absolute bottom-1/4 right-1/4 w-72 h-72 bg-pink-500/10 rounded-full animate-[spin_6s_linear_infinite_reverse]" />
-      </div>
-
+    <div className="min-h-screen bg-gray-900 text-white flex flex-col md:flex-row">
       {/* Game Panel */}
-      <div className="flex-1 flex flex-col items-center p-6 bg-purple-800/30 backdrop-blur-sm relative">
+      <div className="flex-1 flex flex-col items-center p-6 bg-gradient-to-br from-gray-900 via-gray-800 to-black relative">
         {/* Exit Button */}
         <button
           onClick={exitRoom}
-          className="absolute top-4 left-4 bg-pink-600 hover:bg-pink-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-all shadow-lg flex items-center gap-2 group overflow-hidden"
+          className="absolute top-4 left-4 bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-lg flex items-center gap-2"
           title="Exit Room"
         >
-          <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-purple-400/30 to-pink-400/30 animate-[spin_4s_linear_infinite] opacity-0 group-hover:opacity-100" />
-          <span className="relative z-10">✖ Exit Game</span>
+          <span>✖</span>
+          <span>Exit Game</span>
         </button>
 
         {/* Player Name */}
-        <div className="mb-2 text-lg text-purple-200 font-medium">
+        <div className="mb-2 text-lg text-white font-medium">
           Welcome,{" "}
-          <span className="font-bold bg-clip-text text-transparent bg-gradient-to-r from-purple-200 to-pink-200">
-            {player.name}
-          </span>
+          <span className="text-indigo-400 font-bold">{player.name}</span>
         </div>
-
         {/* Room Code */}
         <div className="mb-4">
-          <span className="text-sm uppercase text-purple-300">Room</span>
-          <div className="text-3xl font-bold bg-purple-800/50 px-4 py-2 rounded-lg text-transparent bg-clip-text bg-gradient-to-r from-purple-200 to-pink-200 border border-purple-500/30 shadow relative group">
-            <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-purple-400/30 to-pink-400/30 animate-[spin_4s_linear_infinite] opacity-0 group-hover:opacity-100 rounded-lg" />
-            <span className="relative z-10">#{roomId}</span>
+          <span className="text-sm uppercase text-gray-400">Room</span>
+          <div className="text-3xl font-bold bg-gray-800 px-4 py-2 rounded-lg text-indigo-400 shadow">
+            #{roomId}
           </div>
         </div>
 
-        {/* Scoreboard */}
-        <div className="w-full max-w-md flex justify-between mb-6 bg-purple-800/50 backdrop-blur-sm p-4 rounded-xl border border-purple-500/30 shadow-xl relative">
-          <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-purple-400/10 to-pink-400/10 animate-[spin_8s_linear_infinite] rounded-xl" />
-          <div className="relative z-10 w-full flex justify-between">
-            {players.map((p) => (
-              <div
-                key={p.id}
-                className={`flex-1 text-center ${
-                  p.id === socket.id ? "text-purple-200" : "text-pink-200"
-                }`}
-              >
-                <div className="text-2xl mb-1">
-                  {p.id === socket.id ? "🧍 You" : "🧑 Opponent"}
-                </div>
-                <div className="text-lg font-bold mt-1 bg-clip-text text-transparent bg-gradient-to-r from-purple-200 to-pink-200">
-                  {p.name}
-                </div>
-                <div className="relative mt-2 text-lg">
-                  <span className="font-bold text-2xl bg-clip-text text-transparent bg-gradient-to-r from-purple-200 to-pink-200">
-                    {scores.find((s) => s[0] === p.id)?.[1] ?? 0}
-                  </span>
-                  <div className="text-sm text-purple-300 opacity-75">
-                    Points
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
+        {/* Scoreboard
+  <div className="w-full max-w-md flex justify-between mb-6 bg-gray-800 p-4 rounded-xl shadow-lg">
+    {players.map((p) => (
+      <div
+        key={p.id}
+        className={`flex-1 text-center ${
+          p.id === socket.id ? "text-blue-400" : "text-pink-400"
+        }`}
+      >
+        <div className="text-2xl">
+          {p.id === socket.id ? "🧍 You" : "🧑 Opponent"}
         </div>
+        <div className="text-lg font-bold mt-1">{p.name}</div>
+        <div className="text-sm mt-1 text-gray-300">
+          Score: {scores.find((s) => s[0] === p.id)?.[1] ?? 0}
+        </div>
+      </div>
+    ))}
+  </div> */}
 
         {/* Choice Buttons */}
         <div className="flex space-x-6 my-4">
@@ -254,121 +289,104 @@ const Game = () => {
               key={choice}
               onClick={() => sendMove(choice)}
               disabled={hasPicked || roundResult !== null}
-              className={`relative px-6 py-3 rounded-full capitalize text-lg font-semibold transition-all duration-200 overflow-hidden group ${
+              className={`px-6 py-3 rounded-full capitalize text-lg font-semibold transition-all duration-200 ${
                 hasPicked || roundResult !== null
-                  ? "bg-purple-800/50 cursor-not-allowed"
-                  : "bg-purple-600 hover:bg-purple-700 shadow-lg hover:scale-105"
+                  ? "bg-gray-600 cursor-not-allowed"
+                  : "bg-indigo-600 hover:bg-indigo-700 shadow-lg hover:scale-105"
               }`}
             >
-              <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-purple-400/30 to-pink-400/30 animate-[spin_4s_linear_infinite] opacity-0 group-hover:opacity-100" />
-              <span className="relative z-10">✊ {choice}</span>
+              ✊ {choice}
             </button>
           ))}
         </div>
 
         {/* Result Panel */}
         {(resultType !== null || Object.keys(moves).length > 0) && (
-          <div className="mt-6 text-center bg-purple-800/50 backdrop-blur-sm p-6 rounded-xl border border-purple-500/30 shadow-xl w-full max-w-md relative group">
-            <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-purple-400/10 to-pink-400/10 animate-[spin_8s_linear_infinite] rounded-xl" />
-            <div className="relative z-10">
-              <h3
-                className={`text-2xl font-bold mb-3 ${
-                  resultType === "tie"
-                    ? "text-transparent bg-clip-text bg-gradient-to-r from-yellow-200 to-yellow-400"
-                    : "text-transparent bg-clip-text bg-gradient-to-r from-purple-200 to-pink-200"
+          <div className="mt-6 text-center bg-gray-800 p-6 rounded-xl shadow-md w-full max-w-md">
+            <h3
+              className={`text-2xl font-bold mb-3 ${
+                resultType === "tie" ? "text-yellow-400" : "text-green-400"
+              }`}
+            >
+              {resultType === "tie"
+                ? "🤝 Tie!"
+                : resultType === "win"
+                ? "🎉 You won!"
+                : resultType === "lose"
+                ? "😞 You lost!"
+                : "Round finished"}
+            </h3>
+            <p className="text-gray-300 mb-1">
+              Your Move: <strong>{moves[socket.id]}</strong>
+            </p>
+            <p className="text-gray-300 mb-4">
+              Opponent Move:{" "}
+              <strong>
+                {Object.entries(moves).find(([id]) => id !== socket.id)?.[1]}
+              </strong>
+            </p>
+            <div className="flex flex-col items-center gap-2">
+              {opponentRematchRequested ? (
+                <div className="text-sm text-gray-300 mb-2">
+                  {getPlayerLabel(opponentRematchRequested.id)} (
+                  {getPlayerName(opponentRematchRequested.id)}) wants a rematch.
+                </div>
+              ) : null}
+
+              <button
+                onClick={rematch}
+                disabled={rematchRequested}
+                className={`px-8 py-2 rounded-full text-white font-semibold text-lg transition hover:scale-105 shadow ${
+                  rematchRequested
+                    ? "bg-gray-600 cursor-not-allowed"
+                    : "bg-green-600 hover:bg-green-700"
                 }`}
               >
-                {resultType === "tie"
-                  ? "🤝 Tie!"
-                  : resultType === "win"
-                  ? "🎉 You won!"
-                  : resultType === "lose"
-                  ? "😞 You lost!"
-                  : "Round finished"}
-              </h3>
-              <p className="text-purple-200 mb-1">
-                Your Move:{" "}
-                <strong className="text-pink-200">{moves[socket.id]}</strong>
-              </p>
-              <p className="text-purple-200 mb-4">
-                Opponent Move:{" "}
-                <strong className="text-pink-200">
-                  {Object.entries(moves).find(([id]) => id !== socket.id)?.[1]}
-                </strong>
-              </p>
+                {rematchRequested ? "Waiting for opponent..." : "🔁 Rematch"}
+              </button>
 
-              <div className="flex flex-col items-center gap-2">
-                {opponentRematchRequested && (
-                  <div className="text-sm text-purple-200 mb-2">
-                    <span className="bg-clip-text text-transparent bg-gradient-to-r from-purple-200 to-pink-200">
-                      {getPlayerLabel(opponentRematchRequested.id)}
-                    </span>{" "}
-                    ({getPlayerName(opponentRematchRequested.id)}) wants a
-                    rematch.
-                  </div>
-                )}
-
-                <button
-                  onClick={rematch}
-                  disabled={rematchRequested}
-                  className={`relative px-8 py-2 rounded-full text-white font-semibold text-lg transition hover:scale-105 shadow group overflow-hidden ${
-                    rematchRequested
-                      ? "bg-purple-800/50 cursor-not-allowed"
-                      : "bg-purple-600 hover:bg-purple-700"
-                  }`}
-                >
-                  <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-purple-400/30 to-pink-400/30 animate-[spin_4s_linear_infinite] opacity-0 group-hover:opacity-100" />
-                  <span className="relative z-10">
-                    {rematchRequested
-                      ? "Waiting for opponent..."
-                      : "🔁 Rematch"}
-                  </span>
-                </button>
-
-                {!rematchRequested && opponentRematchRequested && (
-                  <div className="flex gap-2 mt-2">
-                    <button
-                      onClick={acceptRematch}
-                      className="relative px-6 py-2 rounded-full bg-purple-600 hover:bg-purple-700 text-white font-semibold text-sm group overflow-hidden"
-                    >
-                      <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-purple-400/30 to-pink-400/30 animate-[spin_4s_linear_infinite] opacity-0 group-hover:opacity-100" />
-                      <span className="relative z-10">Accept</span>
-                    </button>
-                    <button
-                      onClick={() => {
-                        socket.emit("rematch-cancel");
-                        setOpponentRematchRequested(null);
-                        setToast("Rematch declined");
-                      }}
-                      className="relative px-6 py-2 rounded-full bg-pink-600 hover:bg-pink-700 text-white font-semibold text-sm group overflow-hidden"
-                    >
-                      <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-purple-400/30 to-pink-400/30 animate-[spin_4s_linear_infinite] opacity-0 group-hover:opacity-100" />
-                      <span className="relative z-10">Decline</span>
-                    </button>
-                  </div>
-                )}
-              </div>
+              {!rematchRequested && opponentRematchRequested ? (
+                <div className="flex gap-2 mt-2">
+                  <button
+                    onClick={acceptRematch}
+                    className="px-6 py-2 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm"
+                  >
+                    Accept Rematch
+                  </button>
+                  <button
+                    onClick={() => {
+                      socket.emit("rematch-cancel");
+                      setOpponentRematchRequested(null);
+                      setToast("Rematch declined");
+                    }}
+                    className="px-6 py-2 rounded-full bg-red-600 hover:bg-red-700 text-white font-semibold text-sm"
+                  >
+                    Decline
+                  </button>
+                </div>
+              ) : null}
             </div>
           </div>
         )}
       </div>
 
       {/* Chat Panel */}
-      <div className="w-full md:w-1/3 border-l border-purple-500/30 p-4 flex flex-col bg-purple-800/50 backdrop-blur-sm">
-        <h3 className="text-xl mb-3 font-semibold text-center border-b border-purple-500/30 pb-2 text-transparent bg-clip-text bg-gradient-to-r from-purple-200 to-pink-200">
+      <div className="w-full md:w-1/3 border-l border-gray-700 p-4 flex flex-col bg-gray-800">
+        <h3 className="text-xl mb-3 font-semibold text-center border-b border-gray-600 pb-2">
           💬 Chat
         </h3>
 
-        {toast && (
-          <div className="fixed bottom-6 right-6 bg-purple-800/90 backdrop-blur-sm border border-purple-500/30 text-white px-4 py-2 rounded-lg shadow-lg z-50">
-            <div className="text-sm text-purple-100">{toast}</div>
-            <div className="text-xs text-purple-300 mt-1">
-              (This will disappear automatically)
+        {/* Toast */}
+        {toast ? (
+          <div className="fixed bottom-6 right-6 bg-gray-900 text-white px-4 py-2 rounded shadow-lg z-50">
+            <div className="text-sm">{toast}</div>
+            <div className="text-xs text-gray-400 mt-1">
+              (This will disappear or update automatically)
             </div>
           </div>
-        )}
+        ) : null}
 
-        <div className="flex-1 overflow-y-auto space-y-3 px-1 py-2 bg-purple-900/30 rounded shadow-inner">
+        <div className="flex-1 overflow-y-auto space-y-3 px-1 py-2 bg-gray-900 rounded shadow-inner">
           {chat.map((msg, i) => (
             <div
               key={i}
@@ -377,19 +395,21 @@ const Game = () => {
               }`}
             >
               <div
-                className={`max-w-[80%] px-4 py-2 rounded-xl text-sm shadow-md backdrop-blur-sm ${
+                className={`max-w-[80%] px-4 py-2 rounded-xl text-sm shadow-md ${
                   msg.type === "system"
-                    ? "bg-yellow-600/30 text-yellow-200 mx-auto border border-yellow-500/30"
+                    ? "bg-yellow-600/50 text-white mx-auto"
                     : msg.sender === player.name
-                    ? "bg-purple-600/50 text-purple-100 rounded-br-none border border-purple-500/30"
-                    : "bg-pink-600/50 text-pink-100 rounded-bl-none border border-pink-500/30"
+                    ? "bg-blue-600 text-white rounded-br-none"
+                    : "bg-gray-700 text-white rounded-bl-none"
                 }`}
               >
                 {msg.type === "system" ? (
-                  <span className="block text-xs italic">{msg.text}</span>
+                  <span className="block text-xs italic text-white/90">
+                    {msg.text}
+                  </span>
                 ) : (
-                  <span className="block text-xs font-semibold">
-                    {msg.sender}: {msg.text}
+                  <span className="block text-xs font-semibold mb-1 text-white/70">
+                    {msg.sender} : {msg.text}
                   </span>
                 )}
               </div>
@@ -402,14 +422,13 @@ const Game = () => {
             value={message}
             onChange={(e) => setMessage(e.target.value)}
             placeholder="Type message..."
-            className="flex-1 px-3 py-2 rounded-l bg-purple-700/50 text-white placeholder-purple-300 border border-purple-500/30 border-r-0 shadow-inner focus:outline-none focus:ring-2 focus:ring-purple-400"
+            className="flex-1 px-3 py-2 rounded-l text-black focus:outline-none"
           />
           <button
             onClick={sendChat}
-            className="relative bg-purple-600 px-5 py-2 rounded-r hover:bg-purple-700 group overflow-hidden"
+            className="bg-blue-600 px-5 py-2 rounded-r hover:bg-blue-700"
           >
-            <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-purple-400/30 to-pink-400/30 animate-[spin_4s_linear_infinite] opacity-0 group-hover:opacity-100" />
-            <span className="relative z-10">Send</span>
+            Send
           </button>
         </div>
       </div>

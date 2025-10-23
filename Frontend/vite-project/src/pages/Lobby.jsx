@@ -32,23 +32,20 @@ const Lobby = () => {
     socket.on("player-ready", ({ playerId, ready }) => {
       setReadyState((prev) => {
         const newState = { ...prev, [playerId]: ready };
+        // Check if both players are ready
+        if (
+          players.length === 2 &&
+          Object.keys(newState).length === 2 &&
+          Object.values(newState).every((r) => r)
+        ) {
+          // Give a small delay before navigation
+          setTimeout(() => {
+            navigate(`/game/${roomId}`);
+          }, 1000);
+        }
         return newState;
       });
     });
-
-    // Check if both players are ready and navigate
-    useEffect(() => {
-      if (
-        players.length === 2 &&
-        Object.keys(readyState).length === 2 &&
-        Object.values(readyState).every((ready) => ready)
-      ) {
-        // Short delay to ensure both clients have latest state
-        setTimeout(() => {
-          navigate(`/game/${roomId}`);
-        }, 1000);
-      }
-    }, [players, readyState, roomId, navigate]);
 
     socket.on("opponent-left", () => {
       alert("Opponent disconnected");
@@ -89,7 +86,7 @@ const Lobby = () => {
                 </div>
               </div>
               <div className="ml-auto">
-                {isReady ? (
+                {readyState[socket.id] ? (
                   <span className="bg-green-500/20 text-green-400 px-3 py-1 rounded-full text-sm">
                     Ready
                   </span>
@@ -97,7 +94,10 @@ const Lobby = () => {
                   <button
                     onClick={() => {
                       setIsReady(true);
-                      socket.emit("player-ready", true);
+                      socket.emit("player-ready", {
+                        roomId,
+                        playerId: socket.id,
+                      });
                     }}
                     className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded-full text-sm"
                   >

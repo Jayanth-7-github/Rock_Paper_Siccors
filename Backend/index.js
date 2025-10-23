@@ -72,6 +72,22 @@ io.on("connection", (socket) => {
     }
   });
 
+  socket.on("player-ready", ({ roomId, playerId }) => {
+    const room = rooms.get(roomId);
+    if (!room) return;
+
+    // Update player ready state
+    const player = room.players.find((p) => p.id === playerId);
+    if (player) {
+      player.ready = true;
+      // Broadcast to all players in the room
+      io.to(roomId).emit("player-ready", {
+        playerId: player.id,
+        ready: true,
+      });
+    }
+  });
+
   const validMoves = new Set(["rock", "paper", "scissors"]);
 
   socket.on("player-move", (move) => {

@@ -346,12 +346,24 @@ const Game = () => {
               </button>
 
               {!rematchRequested && opponentRematchRequested ? (
-                <button
-                  onClick={acceptRematch}
-                  className="px-6 py-2 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm mt-2"
-                >
-                  Accept Rematch
-                </button>
+                <div className="flex gap-2 mt-2">
+                  <button
+                    onClick={acceptRematch}
+                    className="px-6 py-2 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm"
+                  >
+                    Accept Rematch
+                  </button>
+                  <button
+                    onClick={() => {
+                      socket.emit("rematch-cancel");
+                      setOpponentRematchRequested(null);
+                      setToast("Rematch declined");
+                    }}
+                    className="px-6 py-2 rounded-full bg-red-600 hover:bg-red-700 text-white font-semibold text-sm"
+                  >
+                    Decline
+                  </button>
+                </div>
               ) : null}
             </div>
           </div>

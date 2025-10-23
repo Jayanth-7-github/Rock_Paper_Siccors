@@ -11,9 +11,7 @@ app.use(cors());
 
 const io = new Server(server, {
   cors: {
-    origin: [
-      "https://frolicking-praline-14031b.netlify.app",
-    ],
+    origin: ["https://frolicking-praline-14031b.netlify.app"],
     methods: ["GET", "POST"],
   },
 });
@@ -54,7 +52,7 @@ io.on("connection", (socket) => {
       rooms.set(roomId, room);
     }
 
-    // Remove any old player with same socket.id
+    // Remove any dangling entry with same socket.id
     room.players = room.players.filter((p) => p.id !== socket.id);
 
     if (room.players.length >= 2) {
@@ -64,13 +62,20 @@ io.on("connection", (socket) => {
 
     const player = { id: socket.id, name };
     room.players.push(player);
-    room.scores.set(socket.id, 0);
-
+    // ensure a score entry exists and move is initialized
+    room.scores.set(socket.id, room.scores.get(socket.id) || 0);
     socket.join(roomId);
     socket.data.roomId = roomId;
     socket.data.name = name;
+    socket.data.move = null;
 
     console.log(`${name} joined room ${roomId}`);
+
+    // emit updated players to the room so UIs can stay in sync
+    io.to(roomId).emit("update-players", {
+      players: room.players,
+      scores: Array.from(room.scores.entries()),
+    });
 
     if (room.players.length === 2) {
       io.to(roomId).emit("both-players-joined", {
@@ -207,16 +212,26 @@ io.on("connection", (socket) => {
 
   socket.on("leave-room", () => {
     const roomId = socket.data.roomId;
+    if (!roomId) return; // already left or never joined
     const room = rooms.get(roomId);
     if (!room) return;
 
+    const playerName = socket.data.name || "Unknown";
     logGameEvent(roomId, "player-left", {
-      player: socket.data.name,
+      player: playerName,
       playerId: socket.id,
     });
 
-    // Store the name before cleaning up
-    const playerName = socket.data.name;
+    // only proceed if the player is actually listed in the room
+    const existed = room.players.some((p) => p.id === socket.id);
+    if (!existed) {
+      // ensure socket leaves the room and clear its data
+      socket.leave(roomId);
+      socket.data.roomId = null;
+      socket.data.name = null;
+      socket.data.move = null;
+      return;
+    }
 
     // Clean up player data
     socket.data.move = null;
@@ -224,22 +239,26 @@ io.on("connection", (socket) => {
     room.scores.delete(socket.id);
     room.rematchRequests.delete(socket.id);
 
-    // Leave the socket.io room
+    // Leave the socket.io room and clear data
     socket.leave(roomId);
     socket.data.roomId = null;
     socket.data.name = null;
 
-    // Notify other players
+    // Notify other players and update UI
     socket.to(roomId).emit("opponent-left", {
       name: playerName,
       message: `${playerName} has left the game`,
     });
 
-    // Add system message to chat
     io.to(roomId).emit("chat-message", {
       sender: "System",
       text: `${playerName} has left the game`,
       type: "system",
+    });
+
+    io.to(roomId).emit("update-players", {
+      players: room.players,
+      scores: Array.from(room.scores.entries()),
     });
 
     // Clean up empty room
@@ -263,10 +282,11 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     const roomId = socket.data.roomId;
+    if (!roomId) return;
     const room = rooms.get(roomId);
     if (!room) return;
 
-    const playerName = socket.data.name;
+    const playerName = socket.data.name || "Unknown";
     console.log(`${playerName} (${socket.id}) disconnected`);
 
     // Clear this player's move
@@ -281,6 +301,10 @@ io.on("connection", (socket) => {
       }
     }
 
+    // only proceed if the player is actually listed in the room
+    const existed = room.players.some((p) => p.id === socket.id);
+    if (!existed) return;
+
     room.players = room.players.filter((p) => p.id !== socket.id);
     room.scores.delete(socket.id);
     room.rematchRequests.delete(socket.id);
@@ -290,11 +314,15 @@ io.on("connection", (socket) => {
       message: `${playerName} has left the game`,
     });
 
-    // Add system message to chat for disconnect
     io.to(roomId).emit("chat-message", {
       sender: "System",
       text: `${playerName} has disconnected from the game`,
       type: "system",
+    });
+
+    io.to(roomId).emit("update-players", {
+      players: room.players,
+      scores: Array.from(room.scores.entries()),
     });
 
     if (room.players.length === 0) {

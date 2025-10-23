@@ -1,4 +1,4 @@
-// backend/index.js
+// backend/server.js
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
@@ -11,37 +11,17 @@ app.use(cors());
 
 const io = new Server(server, {
   cors: {
-    origin: ["https://frolicking-praline-14031b.netlify.app"],
+    origin: "https://frolicking-praline-14031b.netlify.app",
     methods: ["GET", "POST"],
   },
 });
 
 const rooms = new Map();
-const MATCH_POINTS_TO_WIN = 5; // First to 5 points wins the match
-
-// Helper to log game events with room context
-function logGameEvent(roomId, event, details) {
-  const room = rooms.get(roomId);
-  const playerCount = room ? room.players.length : 0;
-  const scores = room ? Array.from(room.scores.entries()) : [];
-  console.log(`[Room ${roomId}] ${event}`, {
-    ...details,
-    playerCount,
-    scores,
-    timestamp: new Date().toISOString(),
-  });
-}
 
 io.on("connection", (socket) => {
   console.log("🔌 Client connected:", socket.id);
 
   socket.on("join-room", ({ roomId, name }) => {
-    // Validate room ID
-    if (!roomId || typeof roomId !== "string" || roomId.trim() === "") {
-      socket.emit("error", "Invalid room ID");
-      return;
-    }
-
     let room = rooms.get(roomId);
     if (!room) {
       room = {
@@ -52,7 +32,7 @@ io.on("connection", (socket) => {
       rooms.set(roomId, room);
     }
 
-    // Remove any dangling entry with same socket.id
+    // Remove any old player with same socket.id
     room.players = room.players.filter((p) => p.id !== socket.id);
 
     if (room.players.length >= 2) {
@@ -62,20 +42,16 @@ io.on("connection", (socket) => {
 
     const player = { id: socket.id, name };
     room.players.push(player);
-    // ensure a score entry exists and move is initialized
-    room.scores.set(socket.id, room.scores.get(socket.id) || 0);
+    room.scores.set(socket.id, 0);
+
     socket.join(roomId);
     socket.data.roomId = roomId;
     socket.data.name = name;
-    socket.data.move = null;
 
     console.log(`${name} joined room ${roomId}`);
 
-    // emit updated players to the room so UIs can stay in sync
-    io.to(roomId).emit("update-players", {
-      players: room.players,
-      scores: Array.from(room.scores.entries()),
-    });
+    // Notify all clients in room about updated players
+    io.to(roomId).emit("update-players", { players: room.players });
 
     if (room.players.length === 2) {
       io.to(roomId).emit("both-players-joined", {
@@ -85,18 +61,10 @@ io.on("connection", (socket) => {
     }
   });
 
-  const validMoves = new Set(["rock", "paper", "scissors"]);
-
   socket.on("player-move", (move) => {
     const roomId = socket.data.roomId;
     const room = rooms.get(roomId);
     if (!room) return;
-
-    // Validate the move
-    if (!validMoves.has(move)) {
-      console.log(`Invalid move by ${socket.id}:`, move);
-      return;
-    }
 
     socket.data.move = move;
     const opponent = room.players.find((p) => p.id !== socket.id);
@@ -105,51 +73,23 @@ io.on("connection", (socket) => {
     if (opponentSocket && opponentSocket.data.move) {
       const result = getResult(socket.data.move, opponentSocket.data.move);
       const winnerId =
-        result === "tie"
+        result === "draw"
           ? null
           : result === "win"
           ? socket.id
           : opponentSocket.id;
 
       if (winnerId) {
-        const newScore = room.scores.get(winnerId) + 1;
-        room.scores.set(winnerId, newScore);
-
-        // Check if someone won the match (first to MATCH_POINTS_TO_WIN)
-        if (newScore >= MATCH_POINTS_TO_WIN) {
-          const winner = room.players.find((p) => p.id === winnerId);
-          logGameEvent(roomId, "match-end", {
-            winner: winner.name,
-            finalScores: Array.from(room.scores.entries()),
-          });
-          io.to(roomId).emit("match-end", {
-            winnerId,
-            scores: Array.from(room.scores.entries()),
-          });
-          // Reset scores for next match
-          room.players.forEach((p) => room.scores.set(p.id, 0));
-        }
+        room.scores.set(winnerId, room.scores.get(winnerId) + 1);
       }
 
-      // Ensure scores exist for both players
-      if (!room.scores.has(socket.id)) {
-        room.scores.set(socket.id, 0);
-      }
-      if (!room.scores.has(opponentSocket.id)) {
-        room.scores.set(opponentSocket.id, 0);
-      }
+      // derive per-player result string for convenience (win/lose/tie)
+      const resultForSocket =
+        result === "draw" ? "tie" : result === "win" ? "win" : "lose";
+      const resultForOpponent =
+        result === "draw" ? "tie" : result === "win" ? "lose" : "win";
 
-      // Include explicit result ('tie' | 'win' | 'lose') in the payload so frontend
-      // doesn't have to infer tie from a null winnerId.
-      logGameEvent(roomId, "round-result", {
-        moves: {
-          [socket.id]: socket.data.move,
-          [opponentSocket.id]: opponentSocket.data.move,
-        },
-        winnerId,
-        result,
-      });
-
+      // Emit to the room the round-result with generic payload
       io.to(roomId).emit("round-result", {
         moves: {
           [socket.id]: socket.data.move,
@@ -157,11 +97,53 @@ io.on("connection", (socket) => {
         },
         winnerId,
         scores: Array.from(room.scores.entries()),
-        result, // 'tie' | 'win' | 'lose'
+        // include a neutral result; individual clients can derive their own, but
+        // also include explicit results per player socket id so frontend can prefer it
+        resultsById: {
+          [socket.id]: resultForSocket,
+          [opponentSocket.id]: resultForOpponent,
+        },
+        // backwards-compatible `result` field for convenience when emitted to each socket
+      });
+
+      // Also emit individualized `round-result` events with `result` field to each participant
+      socket.emit("round-result", {
+        moves: {
+          [socket.id]: socket.data.move,
+          [opponentSocket.id]: opponentSocket.data.move,
+        },
+        winnerId,
+        scores: Array.from(room.scores.entries()),
+        result: resultForSocket,
+      });
+
+      opponentSocket.emit("round-result", {
+        moves: {
+          [socket.id]: socket.data.move,
+          [opponentSocket.id]: opponentSocket.data.move,
+        },
+        winnerId,
+        scores: Array.from(room.scores.entries()),
+        result: resultForOpponent,
       });
 
       socket.data.move = null;
       opponentSocket.data.move = null;
+
+      // Check for match end (first to 3 wins)
+      const WIN_THRESHOLD = 3;
+      const maybeWinner = Array.from(room.scores.entries()).find(
+        ([, s]) => s >= WIN_THRESHOLD
+      );
+      if (maybeWinner) {
+        const [winnerSocketId] = maybeWinner;
+        io.to(roomId).emit("match-end", {
+          winnerId: winnerSocketId,
+          scores: Array.from(room.scores.entries()),
+        });
+        // Reset scores for next match but keep players in room
+        room.scores.forEach((_, key) => room.scores.set(key, 0));
+      }
     }
   });
 
@@ -170,101 +152,49 @@ io.on("connection", (socket) => {
     const room = rooms.get(roomId);
     if (!room) return;
 
-    // Only allow rematch when both players have made moves
-    const playersWithMoves = room.players.filter((p) => {
-      const s = io.sockets.sockets.get(p.id);
-      return s && s.data.move;
-    });
-    if (playersWithMoves.length > 0) {
-      socket.emit("error", "Cannot request rematch during active round");
-      return;
-    }
-
-    // Require both players to request a rematch.
     room.rematchRequests.add(socket.id);
-    // Notify the other players that someone requested a rematch so the UI
-    // can show an "Accept Rematch" or "Waiting" state.
-    socket.to(roomId).emit("rematch-requested", {
+    // Notify both players that a rematch was requested (who requested it)
+    io.to(roomId).emit("rematch-requested", {
       requesterId: socket.id,
       name: socket.data.name,
     });
 
-    // If all players in the room have requested rematch, start it
-    // and clear the requests set.
-    if (room.rematchRequests.size === room.players.length) {
+    if (room.rematchRequests.size === 2) {
       room.rematchRequests.clear();
       io.to(roomId).emit("rematch-start");
     }
   });
 
-  // Allow clients to cancel their rematch request (e.g. timeout)
   socket.on("rematch-cancel", () => {
     const roomId = socket.data.roomId;
     const room = rooms.get(roomId);
     if (!room) return;
-
     room.rematchRequests.delete(socket.id);
-    socket.to(roomId).emit("rematch-cancelled", {
+    io.to(roomId).emit("rematch-cancelled", {
       requesterId: socket.id,
       name: socket.data.name,
     });
   });
 
+  // Allow client to explicitly leave the room
   socket.on("leave-room", () => {
     const roomId = socket.data.roomId;
-    if (!roomId) return; // already left or never joined
     const room = rooms.get(roomId);
     if (!room) return;
-
-    const playerName = socket.data.name || "Unknown";
-    logGameEvent(roomId, "player-left", {
-      player: playerName,
-      playerId: socket.id,
-    });
-
-    // only proceed if the player is actually listed in the room
-    const existed = room.players.some((p) => p.id === socket.id);
-    if (!existed) {
-      // ensure socket leaves the room and clear its data
-      socket.leave(roomId);
-      socket.data.roomId = null;
-      socket.data.name = null;
-      socket.data.move = null;
-      return;
-    }
-
-    // Clean up player data
-    socket.data.move = null;
+    // remove player and cleanup similar to disconnect
     room.players = room.players.filter((p) => p.id !== socket.id);
     room.scores.delete(socket.id);
     room.rematchRequests.delete(socket.id);
-
-    // Leave the socket.io room and clear data
     socket.leave(roomId);
     socket.data.roomId = null;
-    socket.data.name = null;
-
-    // Notify other players and update UI
-    socket.to(roomId).emit("opponent-left", {
-      name: playerName,
-      message: `${playerName} has left the game`,
-    });
-
-    io.to(roomId).emit("chat-message", {
-      sender: "System",
-      text: `${playerName} has left the game`,
-      type: "system",
-    });
-
-    io.to(roomId).emit("update-players", {
-      players: room.players,
-      scores: Array.from(room.scores.entries()),
-    });
-
-    // Clean up empty room
-    if (room.players.length === 0) {
-      rooms.delete(roomId);
-    }
+    socket
+      .to(roomId)
+      .emit("opponent-left", {
+        name: socket.data.name,
+        message: `${socket.data.name} left the room.`,
+      });
+    io.to(roomId).emit("update-players", { players: room.players });
+    if (room.players.length === 0) rooms.delete(roomId);
   });
 
   // ✅ Attach chat handler ONCE per connection
@@ -282,48 +212,16 @@ io.on("connection", (socket) => {
 
   socket.on("disconnect", () => {
     const roomId = socket.data.roomId;
-    if (!roomId) return;
     const room = rooms.get(roomId);
     if (!room) return;
 
-    const playerName = socket.data.name || "Unknown";
-    console.log(`${playerName} (${socket.id}) disconnected`);
-
-    // Clear this player's move
-    socket.data.move = null;
-
-    // Clear opponent's move to reset the round
-    const opponent = room.players.find((p) => p.id !== socket.id);
-    if (opponent) {
-      const opponentSocket = io.sockets.sockets.get(opponent.id);
-      if (opponentSocket) {
-        opponentSocket.data.move = null;
-      }
-    }
-
-    // only proceed if the player is actually listed in the room
-    const existed = room.players.some((p) => p.id === socket.id);
-    if (!existed) return;
+    console.log(`${socket.id} disconnected`);
 
     room.players = room.players.filter((p) => p.id !== socket.id);
     room.scores.delete(socket.id);
     room.rematchRequests.delete(socket.id);
 
-    socket.to(roomId).emit("opponent-left", {
-      name: playerName,
-      message: `${playerName} has left the game`,
-    });
-
-    io.to(roomId).emit("chat-message", {
-      sender: "System",
-      text: `${playerName} has disconnected from the game`,
-      type: "system",
-    });
-
-    io.to(roomId).emit("update-players", {
-      players: room.players,
-      scores: Array.from(room.scores.entries()),
-    });
+    socket.to(roomId).emit("opponent-left");
 
     if (room.players.length === 0) {
       rooms.delete(roomId);
@@ -332,7 +230,7 @@ io.on("connection", (socket) => {
 });
 
 function getResult(p1, p2) {
-  if (p1 === p2) return "tie";
+  if (p1 === p2) return "draw";
   const beats = { rock: "scissors", paper: "rock", scissors: "paper" };
   return beats[p1] === p2 ? "win" : "lose";
 }

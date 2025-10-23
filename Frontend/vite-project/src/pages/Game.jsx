@@ -21,8 +21,10 @@ const Game = () => {
   const [opponentRematchRequested, setOpponentRematchRequested] =
     useState(null);
   const [toast, setToast] = useState(null);
+  const toastTimeoutRef = React.useRef(null);
   const rematchTimeoutRef = React.useRef(null);
   const REMATCH_TIMEOUT_MS = 15000; // 15 seconds
+  const TOAST_TIMEOUT_MS = 10000; // 10 seconds
 
   useEffect(() => {
     socket.on("both-players-joined", ({ players: ps, scores: sc }) => {
@@ -48,6 +50,12 @@ const Game = () => {
         clearTimeout(rematchTimeoutRef.current);
         rematchTimeoutRef.current = null;
       }
+      // also clear any toast timer and hide toast
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+        toastTimeoutRef.current = null;
+      }
+      setToast(null);
     });
 
     socket.on("rematch-requested", ({ requesterId, name }) => {
@@ -92,11 +100,7 @@ const Game = () => {
       }
     });
 
-    // auto-clear toast after 3s
-    if (toast) {
-      const t = setTimeout(() => setToast(null), 3000);
-      return () => clearTimeout(t);
-    }
+    // socket listeners set up above; toast auto-hide handled in a separate effect
 
     const handleChat = (msg) => {
       setChat((prev) => [...prev, msg]);
@@ -104,9 +108,31 @@ const Game = () => {
 
     socket.on("chat-message", handleChat);
 
-    socket.on("opponent-left", () => {
-      alert("Opponent left the game.");
-      navigate("/");
+    socket.on("opponent-left", ({ name, message }) => {
+      setToast(`👋 ${message}`);
+      // Remove the opponent from players list
+      setPlayers((prevPlayers) => prevPlayers.filter((p) => p.name !== name));
+    });
+
+    socket.on("match-end", ({ winnerId, scores }) => {
+      const winner = players.find((p) => p.id === winnerId);
+      const isLocalPlayerWinner = winnerId === socket.id;
+      setToast(
+        `🏆 ${
+          isLocalPlayerWinner ? "You" : winner?.name || "Opponent"
+        } won the match!`
+      );
+      // Reset game state
+      setRoundResult(null);
+      setMoves({});
+      setHasPicked(false);
+      setRematchRequested(false);
+      setOpponentRematchRequested(null);
+      setScores(scores);
+    });
+
+    socket.on("error", (message) => {
+      setToast(`⚠️ ${message}`);
     });
 
     setChat([]);
@@ -117,8 +143,36 @@ const Game = () => {
       socket.off("round-result");
       socket.off("rematch-start");
       socket.off("opponent-left");
+      socket.off("match-end");
+      socket.off("error");
+      // clear toast and rematch timers on unmount
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+        toastTimeoutRef.current = null;
+      }
+      if (rematchTimeoutRef.current) {
+        clearTimeout(rematchTimeoutRef.current);
+        rematchTimeoutRef.current = null;
+      }
     };
   }, [navigate]);
+
+  // handle auto-hide for toast separately so socket listeners effect stays stable
+  useEffect(() => {
+    if (toast) {
+      if (toastTimeoutRef.current) clearTimeout(toastTimeoutRef.current);
+      toastTimeoutRef.current = setTimeout(() => {
+        setToast(null);
+        toastTimeoutRef.current = null;
+      }, TOAST_TIMEOUT_MS);
+    }
+    return () => {
+      if (toastTimeoutRef.current) {
+        clearTimeout(toastTimeoutRef.current);
+        toastTimeoutRef.current = null;
+      }
+    };
+  }, [toast]);
 
   const sendMove = (choice) => {
     if (!hasPicked && roundResult === null) {
@@ -141,6 +195,12 @@ const Game = () => {
       clearTimeout(rematchTimeoutRef.current);
       rematchTimeoutRef.current = null;
     }
+    // clear any toast when rematch is accepted
+    if (toastTimeoutRef.current) {
+      clearTimeout(toastTimeoutRef.current);
+      toastTimeoutRef.current = null;
+    }
+    setToast(null);
   };
 
   const sendChat = () => {
@@ -148,6 +208,11 @@ const Game = () => {
       socket.emit("chat-message", message);
       setMessage("");
     }
+  };
+
+  const exitRoom = () => {
+    socket.emit("leave-room");
+    navigate("/");
   };
 
   const getPlayerName = (id) =>
@@ -171,11 +236,18 @@ const Game = () => {
           <span className="text-indigo-400 font-bold">{player.name}</span>
         </div>
         {/* Room Code */}
-        <div className="mb-4">
+        <div className="mb-4 relative">
           <span className="text-sm uppercase text-gray-400">Room</span>
           <div className="text-3xl font-bold bg-gray-800 px-4 py-2 rounded-lg text-indigo-400 shadow">
             #{roomId}
           </div>
+          <button
+            onClick={exitRoom}
+            className="absolute -top-2 -right-2 bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded-full text-sm font-semibold transition-colors shadow-lg"
+            title="Exit Room"
+          >
+            Exit ✖
+          </button>
         </div>
 
         {/* Scoreboard
@@ -220,10 +292,10 @@ const Game = () => {
         {roundResult !== null && (
           <div className="mt-6 text-center bg-gray-800 p-6 rounded-xl shadow-md w-full max-w-md">
             <h3 className="text-2xl font-bold mb-3 text-green-400">
-              {roundResult === socket.id
-                ? "🎉 You won!"
-                : roundResult === null
+              {roundResult === null
                 ? "🤝 Tie!"
+                : roundResult === socket.id
+                ? "🎉 You won!"
                 : "😞 You lost!"}
             </h3>
             <p className="text-gray-300 mb-1">
@@ -294,14 +366,22 @@ const Game = () => {
             >
               <div
                 className={`max-w-[80%] px-4 py-2 rounded-xl text-sm shadow-md ${
-                  msg.sender === player.name
+                  msg.type === "system"
+                    ? "bg-yellow-600/50 text-white mx-auto"
+                    : msg.sender === player.name
                     ? "bg-blue-600 text-white rounded-br-none"
                     : "bg-gray-700 text-white rounded-bl-none"
                 }`}
               >
-                <span className="block text-xs font-semibold mb-1 text-white/70">
-                  {msg.sender} : {msg.text}
-                </span>
+                {msg.type === "system" ? (
+                  <span className="block text-xs italic text-white/90">
+                    {msg.text}
+                  </span>
+                ) : (
+                  <span className="block text-xs font-semibold mb-1 text-white/70">
+                    {msg.sender} : {msg.text}
+                  </span>
+                )}
               </div>
             </div>
           ))}

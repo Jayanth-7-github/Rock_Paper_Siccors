@@ -17,6 +17,20 @@ const io = new Server(server, {
 });
 
 const rooms = new Map();
+const MATCH_POINTS_TO_WIN = 5; // First to 5 points wins the match
+
+// Helper to log game events with room context
+function logGameEvent(roomId, event, details) {
+  const room = rooms.get(roomId);
+  const playerCount = room ? room.players.length : 0;
+  const scores = room ? Array.from(room.scores.entries()) : [];
+  console.log(`[Room ${roomId}] ${event}`, {
+    ...details,
+    playerCount,
+    scores,
+    timestamp: new Date().toISOString(),
+  });
+}
 
 io.on("connection", (socket) => {
   console.log("🔌 Client connected:", socket.id);
@@ -58,10 +72,18 @@ io.on("connection", (socket) => {
     }
   });
 
+  const validMoves = new Set(["rock", "paper", "scissors"]);
+
   socket.on("player-move", (move) => {
     const roomId = socket.data.roomId;
     const room = rooms.get(roomId);
     if (!room) return;
+
+    // Validate the move
+    if (!validMoves.has(move)) {
+      console.log(`Invalid move by ${socket.id}:`, move);
+      return;
+    }
 
     socket.data.move = move;
     const opponent = room.players.find((p) => p.id !== socket.id);
@@ -77,8 +99,40 @@ io.on("connection", (socket) => {
           : opponentSocket.id;
 
       if (winnerId) {
-        room.scores.set(winnerId, room.scores.get(winnerId) + 1);
+        const newScore = room.scores.get(winnerId) + 1;
+        room.scores.set(winnerId, newScore);
+
+        // Check if someone won the match (first to MATCH_POINTS_TO_WIN)
+        if (newScore >= MATCH_POINTS_TO_WIN) {
+          const winner = room.players.find((p) => p.id === winnerId);
+          logGameEvent(roomId, "match-end", {
+            winner: winner.name,
+            finalScores: Array.from(room.scores.entries()),
+          });
+          io.to(roomId).emit("match-end", {
+            winnerId,
+            scores: Array.from(room.scores.entries()),
+          });
+          // Reset scores for next match
+          room.players.forEach((p) => room.scores.set(p.id, 0));
+        }
       }
+
+      // Ensure scores exist for both players
+      if (!room.scores.has(socket.id)) {
+        room.scores.set(socket.id, 0);
+      }
+      if (!room.scores.has(opponentSocket.id)) {
+        room.scores.set(opponentSocket.id, 0);
+      }
+
+      logGameEvent(roomId, "round-result", {
+        moves: {
+          [socket.id]: socket.data.move,
+          [opponentSocket.id]: opponentSocket.data.move,
+        },
+        winnerId,
+      });
 
       io.to(roomId).emit("round-result", {
         moves: {
@@ -98,6 +152,16 @@ io.on("connection", (socket) => {
     const roomId = socket.data.roomId;
     const room = rooms.get(roomId);
     if (!room) return;
+
+    // Only allow rematch when both players have made moves
+    const playersWithMoves = room.players.filter((p) => {
+      const s = io.sockets.sockets.get(p.id);
+      return s && s.data.move;
+    });
+    if (playersWithMoves.length > 0) {
+      socket.emit("error", "Cannot request rematch during active round");
+      return;
+    }
 
     // Require both players to request a rematch.
     room.rematchRequests.add(socket.id);
@@ -129,6 +193,46 @@ io.on("connection", (socket) => {
     });
   });
 
+  socket.on("leave-room", () => {
+    const roomId = socket.data.roomId;
+    const room = rooms.get(roomId);
+    if (!room) return;
+
+    logGameEvent(roomId, "player-left", {
+      player: socket.data.name,
+      playerId: socket.id,
+    });
+
+    // Clean up player data
+    socket.data.move = null;
+    room.players = room.players.filter((p) => p.id !== socket.id);
+    room.scores.delete(socket.id);
+    room.rematchRequests.delete(socket.id);
+
+    // Leave the socket.io room
+    socket.leave(roomId);
+    socket.data.roomId = null;
+    socket.data.name = null;
+
+    // Notify other players
+    socket.to(roomId).emit("opponent-left", {
+      name: socket.data.name,
+      message: `${socket.data.name} has left the game`,
+    });
+
+    // Add system message to chat
+    io.to(roomId).emit("chat-message", {
+      sender: "System",
+      text: `${socket.data.name} has left the game`,
+      type: "system",
+    });
+
+    // Clean up empty room
+    if (room.players.length === 0) {
+      rooms.delete(roomId);
+    }
+  });
+
   // ✅ Attach chat handler ONCE per connection
   socket.on("chat-message", (text) => {
     const roomId = socket.data.roomId;
@@ -148,6 +252,18 @@ io.on("connection", (socket) => {
     if (!room) return;
 
     console.log(`${socket.id} disconnected`);
+
+    // Clear this player's move
+    socket.data.move = null;
+
+    // Clear opponent's move to reset the round
+    const opponent = room.players.find((p) => p.id !== socket.id);
+    if (opponent) {
+      const opponentSocket = io.sockets.sockets.get(opponent.id);
+      if (opponentSocket) {
+        opponentSocket.data.move = null;
+      }
+    }
 
     room.players = room.players.filter((p) => p.id !== socket.id);
     room.scores.delete(socket.id);

@@ -85,7 +85,7 @@ const Lobby = () => {
                 <div className="text-sm text-gray-400">Player 2</div>
                 <div className="text-lg font-semibold text-gray-400">
                   {players.length > 1
-                    ? players.find((p) => p.name !== player.name)?.name
+                    ? players.find((p) => p.id !== socket.id)?.name
                     : "Waiting for opponent..."}
                 </div>
               </div>
@@ -106,7 +106,7 @@ const Lobby = () => {
       </div>
 
       {/* Loading Animation */}
-      {players.length === 1 && (
+      {players.length < 2 && (
         <div className="text-center">
           <div className="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-indigo-500 mb-2"></div>
           <p className="text-gray-400 text-sm">

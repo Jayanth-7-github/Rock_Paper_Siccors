@@ -30,21 +30,15 @@ const Lobby = () => {
     });
 
     socket.on("player-ready", ({ playerId, ready }) => {
-      setReadyState((prev) => {
-        const newState = { ...prev, [playerId]: ready };
-        // Check if both players are ready
-        if (
-          players.length === 2 &&
-          Object.keys(newState).length === 2 &&
-          Object.values(newState).every((r) => r)
-        ) {
-          // Give a small delay before navigation
-          setTimeout(() => {
-            navigate(`/game/${roomId}`);
-          }, 1000);
-        }
-        return newState;
-      });
+      setReadyState((prev) => ({
+        ...prev,
+        [playerId]: ready,
+      }));
+    });
+
+    socket.on("game-start", () => {
+      // Navigate to game when the server signals all players are ready
+      navigate(`/game/${roomId}`);
     });
 
     socket.on("opponent-left", () => {
@@ -57,6 +51,8 @@ const Lobby = () => {
       socket.off("both-players-joined");
       socket.off("opponent-left");
       socket.off("player-ready");
+      socket.off("game-start");
+      socket.emit("leave-room");
     };
   }, [player, roomId, navigate]);
 
@@ -94,10 +90,7 @@ const Lobby = () => {
                   <button
                     onClick={() => {
                       setIsReady(true);
-                      socket.emit("player-ready", {
-                        roomId,
-                        playerId: socket.id,
-                      });
+                      socket.emit("player-ready");
                     }}
                     className="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 rounded-full text-sm"
                   >

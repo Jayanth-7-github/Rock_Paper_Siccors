@@ -11,7 +11,7 @@ app.use(cors());
 
 const io = new Server(server, {
   cors: {
-    origin: "https://frolicking-praline-14031b.netlify.app",
+    origin: "https://localhost:5173",
     methods: ["GET", "POST"],
   },
 });
@@ -248,5 +248,5 @@ function getResult(p1, p2) {
 }
 
 server.listen(5000, () => {
-  console.log("✅ Server running at https://rock-paper-siccors.onrender.com");
+  console.log("✅ Server running at https://localhost:5000");
 });

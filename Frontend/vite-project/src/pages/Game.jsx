@@ -352,25 +352,33 @@ const Game = () => {
           </div>
         </div>
 
-        {/* Scoreboard
-  <div className="w-full max-w-md flex justify-between mb-6 bg-gray-800 p-4 rounded-xl shadow-lg">
-    {players.map((p) => (
-      <div
-        key={p.id}
-        className={`flex-1 text-center ${
-          p.id === socket.id ? "text-blue-400" : "text-pink-400"
-        }`}
-      >
-        <div className="text-2xl">
-          {p.id === socket.id ? "🧍 You" : "🧑 Opponent"}
+        {/* Scoreboard */}
+        <div className="w-full max-w-md flex justify-between mb-6 bg-gray-800 p-4 rounded-xl shadow-lg">
+          {players.map((p) => {
+            // scores is an array of [id, score] entries from the server
+            const entry = Array.isArray(scores)
+              ? scores.find((s) => Array.isArray(s) && s[0] === p.id)
+              : null;
+            const score = entry ? entry[1] : 0;
+            const isSelf = p.id === socket.id;
+            return (
+              <div
+                key={p.id}
+                className={`flex-1 text-center ${
+                  isSelf ? "text-blue-400" : "text-pink-400"
+                }`}
+              >
+                <div className="text-2xl">
+                  {isSelf ? "🧍 You" : "🧑 Opponent"}
+                </div>
+                <div className="text-lg font-bold mt-1">
+                  {p.name || (isSelf ? "You" : "Opponent")}
+                </div>
+                <div className="text-sm mt-1 text-gray-300">Score: {score}</div>
+              </div>
+            );
+          })}
         </div>
-        <div className="text-lg font-bold mt-1">{p.name}</div>
-        <div className="text-sm mt-1 text-gray-300">
-          Score: {scores.find((s) => s[0] === p.id)?.[1] ?? 0}
-        </div>
-      </div>
-    ))}
-  </div> */}
 
         {/* Choice Buttons */}
         <div className="flex space-x-6 my-4">

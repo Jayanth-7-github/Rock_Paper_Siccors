@@ -1,12 +1,22 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { usePlayer } from '../context/PlayerContext';
+import React, { useState, useEffect } from "react";
+import { useNavigate, useLocation } from "react-router-dom";
+import { usePlayer } from "../context/PlayerContext";
 
 const Home = () => {
-  const [name, setName] = useState('');
-  const [roomCode, setRoomCode] = useState('');
+  const [name, setName] = useState("");
+  const [roomCode, setRoomCode] = useState("");
   const navigate = useNavigate();
+  const location = useLocation();
   const { setPlayer } = usePlayer();
+
+  useEffect(() => {
+    // Check for room code in URL parameters
+    const params = new URLSearchParams(location.search);
+    const roomFromUrl = params.get("room");
+    if (roomFromUrl) {
+      setRoomCode(roomFromUrl);
+    }
+  }, [location]);
 
   const createRoom = () => {
     if (!name.trim()) return alert("Enter your name");
@@ -55,7 +65,9 @@ const Home = () => {
 
         <div className="relative my-4">
           <hr className="border-gray-600" />
-          <span className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-gray-800 px-3 text-sm text-gray-400">or</span>
+          <span className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-gray-800 px-3 text-sm text-gray-400">
+            or
+          </span>
         </div>
 
         <button

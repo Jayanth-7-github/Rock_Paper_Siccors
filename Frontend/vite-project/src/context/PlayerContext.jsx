@@ -5,8 +5,11 @@ const PlayerContext = createContext();
 
 export const PlayerProvider = ({ children }) => {
   const [player, setPlayer] = useState({ name: "", roomId: "" });
+  // Chat state is shared in context so messages persist across Lobby <-> Game
+  const [chat, setChat] = useState([]);
+
   return (
-    <PlayerContext.Provider value={{ player, setPlayer }}>
+    <PlayerContext.Provider value={{ player, setPlayer, chat, setChat }}>
       {children}
     </PlayerContext.Provider>
   );

@@ -15,103 +15,90 @@ const Game = () => {
   const [scores, setScores] = useState([]);
   const [roundResult, setRoundResult] = useState(null);
   const [moves, setMoves] = useState({});
-  const [chat, setChat] = useState([]);
+  // Use context-backed chat so messages persist between Lobby and Game
+  const { chat, setChat } = usePlayer();
+  const [opponentLeft, setOpponentLeft] = useState(false);
+  const playersRef = React.useRef([]);
+  const opponentLeftRef = React.useRef(false);
   const [message, setMessage] = useState("");
   const [hasPicked, setHasPicked] = useState(false);
   const [rematchState, setRematchState] = useState("idle"); // idle, requested, waiting, disabled
   const [rematchRequesterId, setRematchRequesterId] = useState(null);
 
   useEffect(() => {
-    socket.on("both-players-joined", ({ players: ps, scores: sc }) => {
-      setPlayers(ps);
-      setScores(sc);
-    });
+    // Reset game state when component mounts
+    setOpponentLeft(false);
+    setHasPicked(false);
+    setRoundResult(null);
 
-    socket.on("round-result", ({ moves, winnerId, scores }) => {
-      setMoves(moves);
-      setScores(scores);
-      setRoundResult(winnerId);
-      setHasPicked(false);
-    });
+    // Handlers
+    const handleBothPlayersJoined = ({ players: ps, scores: sc }) => {
+      console.log("Both players joined:", ps);
+      const validPlayers = ps || [];
+      console.log("Setting players state:", validPlayers);
+      setPlayers(validPlayers);
+      setScores(sc || []);
+      setOpponentLeft(false);
 
-    socket.on("rematch-requested", ({ requesterId, requesterName }) => {
-      setRematchRequesterId(requesterId);
-      if (requesterId === socket.id) {
-        setRematchState("waiting");
-      } else {
-        setRematchState("requested");
-      }
-    });
-
-    socket.on("rematch-declined", ({ declinerId, declinerName }) => {
-      setRematchState("disabled");
-      setRematchRequesterId(null);
-      // Enable rematch button after 10 seconds
-      setTimeout(() => {
-        setRematchState("idle");
-      }, 10000);
-    });
-
-    socket.on("rematch-start", () => {
-      setRoundResult(null);
-      setMoves({});
-      setHasPicked(false);
-      setRematchState("idle");
-      setRematchRequesterId(null);
-    });
-
-    const handleChat = (msg) => {
-      setChat((prev) => {
-        const newChat = [...prev, msg];
-        setTimeout(() => {
-          if (chatContainerRef.current) {
-            chatContainerRef.current.scrollTop =
-              chatContainerRef.current.scrollHeight;
-          }
-        }, 100);
-        return newChat;
-      });
-    };
-
-    socket.on("chat-message", handleChat);
-
-    socket.on("opponent-left", () => {
-      setChat((prev) => [
-        ...prev,
-        {
-          sender: "System",
-          text: "⚠️ Opponent left the game.",
-          type: "system",
-        },
-      ]);
-      setTimeout(() => {
-        navigate("/");
-      }, 2000);
-    });
-
-    socket.on("both-players-joined", ({ players: ps, scores: sc }) => {
-      setPlayers(ps);
-      setScores(sc);
-      // Find the opponent's name
-      const opponent = ps.find((p) => p.id !== socket.id);
+      const opponent = validPlayers.find((p) => p.id !== socket.id);
       if (opponent) {
+        console.log("Found opponent:", opponent);
         setChat((prev) => [
-          ...prev,
+          ...(prev || []),
           {
             sender: "System",
             text: `👋 ${opponent.name} joined the game!`,
             type: "system",
           },
         ]);
+      } else {
+        console.log("No opponent found in player list:", validPlayers);
       }
-    });
+    };
 
-    socket.on("rematch-requested", ({ requesterId, requesterName }) => {
+    const handleUpdatePlayers = ({ players: updated }) => {
+      console.log("Players updated event received:", updated);
+      const updatedPlayers = updated || [];
+      console.log("Current players before update:", players);
+      console.log("New player count:", updatedPlayers.length);
+
+      if (updatedPlayers.length >= 2) {
+        setOpponentLeft(false);
+      } else {
+        setOpponentLeft(true);
+      }
+
+      setPlayers(updatedPlayers);
+      console.log(
+        "Players state updated. Opponent left:",
+        updatedPlayers.length < 2
+      );
+    };
+
+    const handleRoundResult = ({ moves, winnerId, scores }) => {
+      setMoves(moves || {});
+      setScores(scores || []);
+      setRoundResult(winnerId);
+      setHasPicked(false);
+
+      const resultMessage =
+        winnerId === socket.id
+          ? "🎉 You won the round!"
+          : winnerId === "draw"
+          ? "🤝 It's a draw!"
+          : "😔 You lost the round!";
+      setChat((prev) => [
+        ...(prev || []),
+        { sender: "System", text: resultMessage, type: "system" },
+      ]);
+    };
+
+    const handleRematchRequested = ({ requesterId, requesterName }) => {
       setRematchRequesterId(requesterId);
       if (requesterId === socket.id) {
         setRematchState("waiting");
         setChat((prev) => [
-          ...prev,
+          ...(prev || []),
           {
             sender: "System",
             text: `🔄 You requested a rematch`,
@@ -121,7 +108,7 @@ const Game = () => {
       } else {
         setRematchState("requested");
         setChat((prev) => [
-          ...prev,
+          ...(prev || []),
           {
             sender: "System",
             text: `🔄 ${requesterName} requested a rematch`,
@@ -129,72 +116,134 @@ const Game = () => {
           },
         ]);
       }
-    });
+    };
 
-    socket.on("rematch-declined", ({ declinerId, declinerName }) => {
+    const handleRematchDeclined = ({ declinerId, declinerName }) => {
       setRematchState("disabled");
       setRematchRequesterId(null);
       setChat((prev) => [
-        ...prev,
+        ...(prev || []),
         {
           sender: "System",
           text: `❌ ${declinerName} declined the rematch`,
           type: "system",
         },
       ]);
-      setTimeout(() => {
-        setRematchState("idle");
-      }, 10000);
-    });
+      setTimeout(() => setRematchState("idle"), 10000);
+    };
 
-    socket.on("rematch-start", () => {
+    const handleRematchStart = () => {
       setRoundResult(null);
       setMoves({});
       setHasPicked(false);
       setRematchState("idle");
       setRematchRequesterId(null);
-      setChat((prev) => [
-        ...prev,
+      setChat([
         { sender: "System", text: "🎮 Starting new game!", type: "system" },
       ]);
-    });
+    };
 
-    socket.on("round-result", ({ moves, winnerId, scores }) => {
-      setMoves(moves);
-      setScores(scores);
-      setRoundResult(winnerId);
-      setHasPicked(false);
+    const handleChat = (msg) => {
+      if (opponentLeftRef.current) return;
+      setChat((prev) => {
+        const newChat = [...(prev || []), msg];
+        setTimeout(() => {
+          if (chatContainerRef.current)
+            chatContainerRef.current.scrollTop =
+              chatContainerRef.current.scrollHeight;
+        }, 100);
+        return newChat;
+      });
+    };
 
-      // Add round result to chat
-      const resultMessage =
-        winnerId === socket.id
-          ? "🎉 You won the round!"
-          : winnerId === "draw"
-          ? "🤝 It's a draw!"
-          : "😔 You lost the round!";
+    const handleOpponentLeft = () => {
+      console.log("Opponent left event received");
+      const currentPlayers = playersRef.current;
+      console.log("Current players when opponent left:", currentPlayers);
+
+      const msg =
+        "You can't play alone. Minimum two players are required to continue.";
       setChat((prev) => [
-        ...prev,
-        { sender: "System", text: resultMessage, type: "system" },
+        ...(prev || []),
+        { sender: "System", text: msg, type: "system" },
       ]);
-    });
 
-    setChat([
-      { sender: "System", text: "👋 Welcome to the game!", type: "system" },
-    ]);
+      // Only set opponent left if we actually had an opponent
+      if (currentPlayers.length >= 2) {
+        console.log("Setting opponent left to true");
+        setOpponentLeft(true);
+        setPlayers((prev) => prev.filter((p) => p.id === socket.id));
+      }
+    };
+
+    const handleGameStarted = () => {
+      setChat([
+        { sender: "System", text: "👋 Welcome to the game!", type: "system" },
+      ]);
+    };
+
+    // Register handlers once
+    socket.on("both-players-joined", handleBothPlayersJoined);
+    socket.on("update-players", handleUpdatePlayers);
+    socket.on("round-result", handleRoundResult);
+    socket.on("rematch-requested", handleRematchRequested);
+    socket.on("rematch-declined", handleRematchDeclined);
+    socket.on("rematch-start", handleRematchStart);
+    socket.on("chat-message", handleChat);
+    socket.on("opponent-left", handleOpponentLeft);
+    socket.on("game-started", handleGameStarted);
 
     return () => {
+      socket.off("both-players-joined", handleBothPlayersJoined);
+      socket.off("update-players", handleUpdatePlayers);
+      socket.off("round-result", handleRoundResult);
+      socket.off("rematch-requested", handleRematchRequested);
+      socket.off("rematch-declined", handleRematchDeclined);
+      socket.off("rematch-start", handleRematchStart);
       socket.off("chat-message", handleChat);
-      socket.off("both-players-joined");
-      socket.off("round-result");
-      socket.off("rematch-start");
-      socket.off("opponent-left");
-      socket.off("rematch-requested");
-      socket.off("rematch-declined");
+      socket.off("opponent-left", handleOpponentLeft);
+      socket.off("game-started", handleGameStarted);
     };
   }, [navigate]);
 
+  // keep refs up-to-date
+  // Component mount effect
+  useEffect(() => {
+    // Join room when component mounts
+    socket.emit("join-room", { roomId, name: player.name });
+    console.log("Emitted join-room event:", { roomId, name: player.name });
+
+    return () => {
+      // Leave room when component unmounts
+      socket.emit("leave-room", { roomId });
+      console.log("Emitted leave-room event:", { roomId });
+    };
+  }, [roomId, player.name]);
+
+  // Keep refs up-to-date
+  useEffect(() => {
+    console.log("Updating players ref:", players);
+    playersRef.current = players;
+  }, [players]);
+
+  useEffect(() => {
+    console.log("Updating opponent left ref:", opponentLeft);
+    opponentLeftRef.current = opponentLeft;
+  }, [opponentLeft]);
+
   const sendMove = (choice) => {
-    if (!hasPicked && roundResult === null) {
+    console.log("Attempting move:", {
+      players: players.length,
+      hasPicked,
+      roundResult,
+      opponentLeft,
+    });
+    if (
+      !hasPicked &&
+      roundResult === null &&
+      players.length >= 2 &&
+      !opponentLeft
+    ) {
       socket.emit("player-move", choice);
       setHasPicked(true);
     }
@@ -215,6 +264,8 @@ const Game = () => {
   };
 
   const sendChat = () => {
+    // Only allow sending when both players are present and opponent hasn't left
+    if (players.length < 2 || opponentLeft) return;
     if (message.trim()) {
       socket.emit("chat-message", message);
       setMessage("");
@@ -223,6 +274,22 @@ const Game = () => {
 
   const getPlayerName = (id) =>
     players.find((p) => p.id === id)?.name || "Unknown";
+
+  useEffect(() => {
+    console.log("Game state updated:", {
+      playersCount: players.length,
+      playersList: players.map((p) => ({ id: p.id, name: p.name })),
+      selfId: socket.id,
+      opponentLeft,
+      hasPicked,
+      roundResult,
+      buttonsEnabled:
+        !opponentLeft &&
+        players.length >= 2 &&
+        !hasPicked &&
+        roundResult === null,
+    });
+  }, [players, opponentLeft, hasPicked, roundResult]);
 
   return (
     <div className="min-h-screen bg-gray-900 text-white flex flex-col md:flex-row">
@@ -240,6 +307,31 @@ const Game = () => {
           <span>🚪</span>
           Exit
         </button>
+        {opponentLeft && (
+          <div className="absolute top-4 right-4 p-3 rounded-lg bg-yellow-600/20 border border-yellow-600 text-yellow-200 flex items-center gap-3">
+            <span className="text-xl">⚠️</span>
+            <div className="text-sm">
+              <div className="font-semibold">You can’t play alone</div>
+              <div className="text-xs text-yellow-200/80">
+                Minimum two players are required to continue.
+              </div>
+            </div>
+            <div className="ml-3 flex items-center gap-2">
+              <button
+                onClick={() => setOpponentLeft(false)}
+                className="px-2 py-1 rounded-md bg-yellow-600/80 hover:bg-yellow-600 text-black"
+              >
+                Dismiss
+              </button>
+              <button
+                onClick={() => navigate("/")}
+                className="px-2 py-1 rounded-md bg-red-600/80 hover:bg-red-600 text-white"
+              >
+                Return Home
+              </button>
+            </div>
+          </div>
+        )}
         {/* Player Name */}
         <div className="mb-2 text-lg text-white font-medium">
           Welcome,{" "}
@@ -279,9 +371,17 @@ const Game = () => {
             <button
               key={choice}
               onClick={() => sendMove(choice)}
-              disabled={hasPicked || roundResult !== null}
+              disabled={
+                hasPicked ||
+                roundResult !== null ||
+                players.length < 2 ||
+                opponentLeft
+              }
               className={`px-6 py-3 rounded-full capitalize text-lg font-semibold transition-all duration-200 ${
-                hasPicked || roundResult !== null
+                hasPicked ||
+                roundResult !== null ||
+                players.length < 2 ||
+                opponentLeft
                   ? "bg-gray-600 cursor-not-allowed"
                   : "bg-indigo-600 hover:bg-indigo-700 shadow-lg hover:scale-105"
               }`}
@@ -400,25 +500,44 @@ const Game = () => {
           ))}
         </div>
 
-        <div className="flex mt-3">
-          <input
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            onKeyPress={(e) => {
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                sendChat();
+        <div className="flex flex-col gap-2 mt-3 w-full">
+          {players.length < 2 && (
+            <div className="text-sm text-gray-400 text-center">
+              Chat will be enabled once both players join.
+            </div>
+          )}
+          <div className="flex">
+            <input
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              onKeyPress={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  sendChat();
+                }
+              }}
+              placeholder={
+                players.length < 2
+                  ? "Chat enabled when both players join"
+                  : "Type message..."
               }
-            }}
-            placeholder="Type message..."
-            className="flex-1 px-3 py-2 rounded-l text-black focus:outline-none"
-          />
-          <button
-            onClick={sendChat}
-            className="bg-blue-600 px-5 py-2 rounded-r hover:bg-blue-700"
-          >
-            Send
-          </button>
+              disabled={players.length < 2}
+              className={`flex-1 px-3 py-2 rounded-l text-black focus:outline-none ${
+                players.length < 2 ? "bg-gray-400/40 cursor-not-allowed" : ""
+              }`}
+            />
+            <button
+              onClick={sendChat}
+              disabled={players.length < 2}
+              className={`px-5 py-2 rounded-r ${
+                players.length < 2
+                  ? "bg-gray-500 cursor-not-allowed"
+                  : "bg-blue-600 hover:bg-blue-700"
+              }`}
+            >
+              Send
+            </button>
+          </div>
         </div>
       </div>
     </div>

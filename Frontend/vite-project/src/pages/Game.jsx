@@ -384,16 +384,19 @@ const Game = () => {
                 players.length < 2 ||
                 opponentLeft
               }
-              className={`px-6 py-3 rounded-full capitalize text-lg font-semibold transition-all duration-200 ${
+                className={`px-6 py-3 rounded-full capitalize text-lg font-semibold transition-all duration-300 ${
                 hasPicked ||
                 roundResult !== null ||
                 players.length < 2 ||
                 opponentLeft
-                  ? "bg-gray-600 cursor-not-allowed"
-                  : "bg-indigo-600 hover:bg-indigo-700 shadow-lg hover:scale-105"
+                    ? "bg-gray-600/80 cursor-not-allowed backdrop-blur-sm"
+                    : "bg-indigo-600/90 hover:bg-indigo-700 shadow-lg hover:scale-105 hover:shadow-[0_0_15px_rgba(99,102,241,0.5)] backdrop-blur-sm"
               }`}
             >
-              ✊ {choice}
+                {choice === "rock" && "🪨"}
+                {choice === "paper" && "📄"}
+                {choice === "scissors" && "✂️"}
+                <span className="ml-2">{choice}</span>
             </button>
           ))}
         </div>

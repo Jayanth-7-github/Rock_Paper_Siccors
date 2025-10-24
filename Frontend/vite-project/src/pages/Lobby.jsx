@@ -1,8 +1,10 @@
 // src/pages/Lobby.jsx
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import socket from "../socket";
 import { usePlayer } from "../context/PlayerContext";
+import AnimatedBackground from "../components/AnimatedBackground";
+
 
 const WaitingDots = ({ className = "" }) => (
   <span className={`inline-flex ${className}`} aria-hidden>
@@ -205,6 +207,7 @@ const Lobby = () => {
 
   return (
     <div className="min-h-screen bg-gray-800 text-white flex items-center justify-center p-6">
+      <AnimatedBackground />
       <div className="w-full max-w-5xl bg-gray-900/60 backdrop-blur rounded-2xl p-8 shadow-xl border border-gray-700">
         {opponentLeft && (
           <div className="mb-4 p-3 rounded-lg bg-yellow-600/20 border border-yellow-600 text-yellow-200 flex items-center justify-between">

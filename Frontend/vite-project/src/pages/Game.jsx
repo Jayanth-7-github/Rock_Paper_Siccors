@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import socket from "../socket";
 import { usePlayer } from "../context/PlayerContext";
+import AnimatedBackground from "../components/AnimatedBackground";
 
 const choices = ["rock", "paper", "scissors"];
 
@@ -292,9 +293,10 @@ const Game = () => {
   }, [players, opponentLeft, hasPicked, roundResult]);
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white flex flex-col md:flex-row">
+    <div className="min-h-screen bg-transparent text-white flex flex-col md:flex-row relative">
+      <AnimatedBackground />
       {/* Game Panel */}
-      <div className="flex-1 flex flex-col items-center p-6 bg-gradient-to-br from-gray-900 via-gray-800 to-black relative">
+      <div className="flex-1 flex flex-col items-center p-6 bg-transparent relative z-10">
         {/* Exit Button */}
         <button
           onClick={() => {
@@ -302,10 +304,15 @@ const Game = () => {
               navigate("/");
             }
           }}
-          className="absolute top-4 left-4 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg shadow-lg transition-all duration-200 hover:scale-105 flex items-center gap-2"
+          className="absolute top-4 left-4 px-6 py-3 bg-gradient-to-r from-purple-900/80 to-indigo-900/80 text-white rounded-xl 
+          shadow-[0_0_15px_rgba(139,92,246,0.3)] hover:shadow-[0_0_20px_rgba(139,92,246,0.5)] border border-purple-500/30
+          backdrop-blur-sm transition-all duration-300 hover:scale-105 hover:from-purple-800/80 hover:to-indigo-800/80
+          animate-pulse-slow flex items-center gap-3 group"
         >
-          <span>🚪</span>
-          Exit
+          <span className="text-xl transform group-hover:rotate-12 transition-transform duration-300">
+            ⭐
+          </span>
+          <span className="font-semibold tracking-wide">Exit Game</span>
         </button>
         {opponentLeft && (
           <div className="absolute top-4 right-4 p-3 rounded-lg bg-yellow-600/20 border border-yellow-600 text-yellow-200 flex items-center gap-3">
@@ -463,7 +470,7 @@ const Game = () => {
       </div>
 
       {/* Chat Panel */}
-      <div className="w-full md:w-1/3 border-l border-gray-700 p-4 flex flex-col bg-gray-800 h-screen md:h-auto">
+      <div className="w-full md:w-1/3 border-l border-gray-700/50 p-4 flex flex-col bg-gray-800/40 backdrop-blur-sm h-screen md:h-auto z-10">
         <h3 className="text-xl mb-3 font-semibold text-center border-b border-gray-600 pb-2">
           💬 Chat
         </h3>

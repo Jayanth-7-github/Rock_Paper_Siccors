@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect , useRef} from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { motion } from "framer-motion";
 import { usePlayer } from "../context/PlayerContext";
+import AnimatedBackground from "../components/AnimatedBackground";
 
 const Home = () => {
   const [name, setName] = useState("");
@@ -32,6 +33,7 @@ const Home = () => {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-gray-900 via-gray-800 to-black px-4">
+      <AnimatedBackground />
       <motion.div
         initial={{ opacity: 0, y: 40 }}
         animate={{ opacity: 1, y: 0 }}
